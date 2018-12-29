@@ -1,5 +1,7 @@
 r"""
-Apply one rule on one substrate.
+Apply one/many rules on one/many substrates.
+
+Thomas Duigou, INRA, 2018
 """
 
 import os
@@ -10,11 +12,11 @@ import rdkit
 import signal
 import logging
 import argparse
+import multiprocessing as mp
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-import multiprocessing as mp
 
 
 class RuleBurnerError(Exception):
@@ -82,7 +84,6 @@ def kill(pool):
     # .is_alive() will reap dead process
     while any(p.is_alive() for p in pool._pool):
         pass
-    print(pool)
     pool.terminate()
 
 
@@ -205,12 +206,11 @@ class RuleBurner(object):
             raise e
 
     def _run_with_timeout(self, worker, kwargs, timeout=5):
-        """Generic wrapper for using multiprocessing to garantee effective timeout.
+        """Generic wrapper making use of multiprocessing to garantee effective timeout.
         
         :param  worker:     function to be called
         :param  kwargs:     dictionnary of args to be passed to the called function
         :param  timeout:    int, timeout
-        :param  pool:       multiprocessing Pool object, for optimization purpose
         :returns            depends of the worker function 
         """
         if self._pool is None:
@@ -236,10 +236,10 @@ class RuleBurner(object):
         :returns    tuple_tuple_inchis:     tuple of tuple of InChIs
         :returns    tuple_tuple_smiles:     tuple of tuple of SMILES
         """
-        # Collect and standardize
         list_list_inchis = list()
         list_list_smiles = list()
         uniq_depics = set()
+        
         for tuple_raw in tuple_tuple_raw:
             try: 
                 list_inchis = list()
@@ -258,6 +258,7 @@ class RuleBurner(object):
                 # Continue only if depiction never met
                 if depic in uniq_depics:
                     continue
+                uniq_depics.add(depic)
                 # Get SMILES
                 for rd_mol in list_std:
                     list_smiles.append(Chem.MolToSmiles(rd_mol))
@@ -267,7 +268,7 @@ class RuleBurner(object):
             except Exception as e:
                 logging.warning("Cannot handle a tuple of result, skipped")
                 logging.warning("{}".format(e))
-        return list_list_smiles, list_list_inchis  # Quick and dirty
+        return list_list_smiles, list_list_inchis  # Quick but dirty
 
 
     def _jsonify(self, rsmarts, csmiles, rid=None, cid=None,
@@ -275,8 +276,23 @@ class RuleBurner(object):
                  match_exec_time=None, match_error=None,
                  fire_timed_out=None, fire_exec_time=None, fire_error=None,
                  smiles_list=None, inchis_list=None):
-        """Return the results as a json string."""
+        """Return the results as a JSON string.
         
+        :param      rsmarts:            str, reaction rule string depiction
+        :param      csmiles:            str, substrate string depiction
+        :param      rid:                str, reaction rule ID
+        :param      cid:                str, substrate ID
+        :param      has_match:          bool or None, True if there is match
+        :param      match_timed_out:    bool, True if timeout reached
+        :param      match_exec_time:    int, execution time for matching
+        :param      match_error:        str, error message if any, else None
+        :param      fire_timed_out:     bool, True if timeout reached
+        :param      fire_exec_time:     bool, execution time for firing
+        :param      fire_error:         str, error message if any, else None
+        :param      smiles_list:        list of list, SMILES of products
+        :param      inchis_list:        list of list, SMILES of InChIs
+        :returns    json_string:        JSON string
+        """
         data = {
             # General info
             'rule_id': rid,
@@ -296,26 +312,27 @@ class RuleBurner(object):
             'product_smiles': smiles_list,
             'product_inchis': inchis_list
         }
-        
-        # JSONify
-        return json.dumps(obj=[data], indent=self._INDENT_JSON)
+        return json.dumps(obj=data, indent=self._INDENT_JSON)
 
     def write_json(self):
         """Write the JSON string."""
-        ofh = open(self._ofile, 'w') if self._ofile else sys.stdout
-        ofh.write(','.join(self._json))
+        if self._ofile:
+            ofh = open(self._ofile, 'w')
+        else:
+            ofh = sys.stdout
+        ofh.write('[\n' + ','.join(self._json) + '\n]')
         ofh.write('\n')
         ofh.close()
 
     def compute(self):
         """Rules under fire."""
-        
         for rindex, rsmarts in enumerate(self._rsmarts_list):
+            # Extract corresponding reaction rule ID if any
             if self._rid_list:
                 rid = self._rid_list[rindex]
             else:
                 rid = None
-            # Get initialized RDKit rxn
+            # Get RDKit reaction object
             try:
                 rd_rule = AllChem.ReactionFromSmarts(rsmarts)
                 rd_rule.Initialize()
@@ -323,17 +340,18 @@ class RuleBurner(object):
                 raise RuleConversionError(e) from e
 
             for cindex, csmiles in enumerate(self._csmiles_list):
+                # Extract corresponding substrate ID if any
                 if self._cid_list:
                     cid = self._cid_list[cindex]
                 else:
                     cid = None
                 # Get standardized RDKit mol
                 try:
-                    rd_mol = Chem.MolFromSmiles(csmiles)
+                    rd_mol = Chem.MolFromSmiles(csmiles, sanitize=False)  # Important: Sanitize = False
                     self._standardize_chemical(rd_mol)
                 except Exception as e:
                     raise ChemConversionError(e) from e
-                # General args
+                # General args to used for both matching and firing
                 kwargs = {
                         'rd_rule': rd_rule,
                         'rd_mol': rd_mol
@@ -347,9 +365,13 @@ class RuleBurner(object):
                     match_timed_out = False
                     match_error = None
                 except mp.TimeoutError as e:
+                    has_match = None
+                    match_exec_time = None
                     match_timed_out = True
                     match_error = str(e)
                 except Exception as e:
+                    has_match = None
+                    match_exec_time = None
                     match_timed_out = False
                     match_error = str(e)
                 # Firing
@@ -362,9 +384,15 @@ class RuleBurner(object):
                     fire_timed_out = False
                     fire_error = None
                 except mp.TimeoutError as e:
+                    fire_exec_time = None
+                    smiles = None
+                    inchis = None
                     fire_timed_out = True
                     fire_error = str(e)
                 except Exception as e:
+                    fire_exec_time = None
+                    smiles = None
+                    inchis = None
                     fire_timed_out = False
                     fire_error = str(e)
                 # JSONify and store
@@ -377,25 +405,95 @@ class RuleBurner(object):
                         smiles_list=smiles, inchis_list=inchis
                         )
                 self._json.append(json_str)
-                
-        
-        
 
 
 def __cli():
     """Command line interface."""
 
-    help = "Apply one rule on one substrate."
+    help = "Apply rules on chemicals."
+
+    def inline_mode(args):
+        """Execution mode to be used when a single rule and a single chemical
+        are porvided through CLI.
+        """
+        r = RuleBurner(
+                rsmarts_list=[args.rsmarts], csmiles_list=[args.csmiles],
+                rid_list=[args.rid], cid_list=[args.cid],
+                match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
+                ofile=args.ofile
+                )
+        r.compute()
+        r.write_json()
+
+    def file_mode(args):
+        """Execution mode to be used when rules and chemicals are provided 
+        in CSV files.
+        """
+        
+        rsmarts_list = list()
+        rids_list = list()
+
+        rsmiles_list = list()
+        cids_list = list()
+        
+        import csv
+        
+        with open(args.rfile, 'r') as ifh:
+            reader = csv.DictReader(ifh, delimiter='\t')
+            for row in reader:
+                rsmarts_list.append(row['Rule_SMARTS'].strip())
+                rids_list.append(row['Rule_ID'].strip())
+
+        with open(args.cfile, 'r') as ifh:
+            reader = csv.DictReader(ifh, delimiter='\t')
+            for row in reader:
+                rsmiles_list.append(row['Substrate_SMILES'].strip())
+                cids_list.append(row['Substrate_ID'].strip())
+                
+        r = RuleBurner(
+                rsmarts_list=rsmarts_list, csmiles_list=rsmiles_list,
+                rid_list=rids_list, cid_list=cids_list,
+                match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
+                ofile=args.ofile
+                )
+        r.compute()
+        r.write_json()
 
     parser = argparse.ArgumentParser(description=help)
-    parser.add_argument('--rsmarts', help='Reaction rule SMARTS', required=True)
-    parser.add_argument('--csmiles', help='Chemical SMILES depiction', required=True)
-    parser.add_argument('--rid', help='Reaction rule ID, optional')
-    parser.add_argument('--cid', help='Chemical ID, optional')
     parser.add_argument('--match_timeout', help='Rule matching timeout', default=5, type=int)
     parser.add_argument('--fire_timeout', help='Rule furing timeout', default=5, type=int)
     parser.add_argument('--ofile', help='Output file to store results. Default to STDOUT if none provided')
-    args = parser.parse_args()
+    subparsers = parser.add_subparsers(help='Input mode')
+
+    parser_inline = subparsers.add_parser('inline', help='Get inputs from command line')
+    parser_inline.set_defaults(func=inline_mode)
+    parser_inline.add_argument('--rsmarts', help='Reaction rule SMARTS', required=True)
+    parser_inline.add_argument('--csmiles', help='Chemical SMILES depiction', required=True)
+    parser_inline.add_argument('--rid', help='Reaction rule ID, optional')
+    parser_inline.add_argument('--cid', help='Chemical ID, optional')
+    
+    parser_file = subparsers.add_parser('file', help='Get inputs from files')
+    parser_file.set_defaults(func=file_mode)
+    parser_file.add_argument(
+            '--rfile', required=True, help=' '.join([
+                    'Reaction rule file.',
+                    'Tab separated columns.',
+                    'One reaction rule per line.',
+                    'Mandatory column: Rule_SMARTS.',
+                    'Optional column: Rule_ID.',
+                    'Other columns will be ignored.'
+                    ])
+            )
+    parser_file.add_argument(
+            '--cfile', required=True, help=' '.join([
+                    'Chemical file.',
+                    'Tab separated columns.',
+                    'One chemical per line.',
+                    'Mandatory column: Substrate_SMILES.',
+                    'Optional column: Substrate_ID.',
+                    'Other columns will be ignored.'
+                    ])
+            )
 
     # Logging
     logging.basicConfig(
@@ -403,16 +501,10 @@ def __cli():
             datefmt='%d/%m/%Y %H:%M:%S',
             format='%(asctime)s -- %(levelname)s -- %(message)s'
             )
-
-    r = RuleBurner(
-            rsmarts_list=[args.rsmarts], csmiles_list=[args.csmiles],
-            rid_list=[args.rid], cid_list=[args.cid],
-            match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
-            ofile=args.ofile
-            )
     
-    r.compute()
-    r.write_json()
+    # Execute right mode
+    args = parser.parse_args()
+    args.func(args)
 
 if __name__ == "__main__":
     __cli()
