@@ -218,7 +218,7 @@ class RuleBurner(object):
             res = self._pool.apply_async(worker, kwds={'kwargs': kwargs})
             ans = res.get(timeout=timeout)
             end_time = time.time()
-            exec_time = round(end_time - start_time, 3)
+            exec_time = round(end_time - start_time, 4)
         except mp.TimeoutError as e:
             kill(pool)
             self._pool = Pool(processes=1)
@@ -291,25 +291,32 @@ class RuleBurner(object):
         :param      inchis_list:        list of list, SMILES of InChIs
         :returns    json_string:        JSON string
         """
+        # General info
         data = {
-            # General info
             'rule_id': rid,
-            'rule_smarts': rsmarts,
+            # 'rule_smarts': rsmarts,
             'substrate_id': cid,
-            'substrate_smiles': csmiles,
-            # Match info
-            'match': has_match,
-            'match_exec_time': match_exec_time,
-            'match_timed_out': match_timed_out,
-            'match_error': match_error,
-            # Firing info
-            'fire_timed_out': fire_timed_out,
-            'fire_exec_time': fire_exec_time,
-            'fire_error': fire_error,
-            # Add product InChIs, SMILESs, ..
-            'product_smiles': smiles_list,
-            'product_inchis': inchis_list
+            # 'substrate_smiles': csmiles,
         }
+        # Match info
+        data['match'] = has_match
+        data['match_timed_out'] = match_timed_out
+        data['match_exec_time'] = match_exec_time
+        if match_error is not None:
+            data['match_error'] = match_error
+        # Fire info
+        if len(smiles_list) > 0:
+            data['fire'] = True
+        else:
+            data['fire'] = False
+        data['fire_timed_out'] = fire_timed_out
+        data['fire_exec_time'] = fire_exec_time
+        if fire_error is not None:
+            data['fire_error'] = fire_error
+        if len(smiles_list) > 0:
+            data['product_smiles'] = smiles_list
+            data['product_inchis'] = inchis_list
+
         return json.dumps(obj=data, indent=self._INDENT_JSON)
 
     def write_json(self):
