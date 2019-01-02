@@ -1,0 +1,168 @@
+r"""
+Prepare set of file and apply batch of rules.
+
+Example:
+snakemake --directory . --snakefile debug.smake -p -j 6 > wf_debug_mnx20181203.log 2>&1
+
+Example for cluster:
+screen
+source activate pyrule
+snakemake -s debug.smake --cluster-config sge.json --cluster-sync "{cluster.qsub}" --jobname snakejob.{rule}_{wildcards.chem_id}_{jobid}.sh --jobs 4 --jobscript sge.sh --latency-wait 100 -F > wf_debug_mnx20181203.log 2>&1
+
+
+Thomas Duigou, INRA, 2018
+"""
+
+# IN_RULES = 'rules_rall.tsv'
+# RADIUS_TO_KEEP = '2 4 6 8'.split()
+# MAX_CUTOFF = 30
+# MIN_CUTOFF = 1
+
+IN_RULES = 'rules_rall_short.tsv'
+RADIUS_TO_KEEP = '0'.split()
+MAX_CUTOFF = 0
+MIN_CUTOFF = 1
+
+# Cluster: prevent specific rules to be executed on nodes
+localrules: all, select, split
+
+rule all:
+    input:
+        dynamic('per_chem/{chem_id}.tsv'),
+        dynamic('res/{chem_id}.json.gz')
+
+rule select:
+    input:
+        IN_RULES
+    output:
+        rule_out = 'rules_wish_list.tsv',
+        chem_out = 'chems_wish_list.tsv',
+        rule_stat = 'rules_stat.tsv',
+        chem_stat = 'chems_stat.tsv'
+    params:
+        max_cutoff = MAX_CUTOFF,
+        min_cutoff = MIN_CUTOFF,
+        radius_to_keep = RADIUS_TO_KEEP,
+        radius_to_count_chem = RADIUS_TO_KEEP[0]
+    run:
+        import csv
+
+        all_rules = dict()
+        all_chems = dict()
+        chems_cnt = dict()
+        rules_cnt = dict()
+        radius_ref = None
+
+        # Get relevant info
+        with open(input[0], 'r') as ifh:
+            reader = csv.DictReader(ifh, delimiter='\t')
+            for row in reader:
+                rule_hash = row['# Rule_ID'].split('-')[2]
+                rule_smarts = row['Rule_SMARTS']
+                chem_id = row['Substrate_ID']
+                chem_smiles = row['Substrate_SMILES']
+                # Check radius
+                radius = str(int(row['Diameter'])//2)
+                if radius not in params['radius_to_keep']:
+                    continue
+                elif radius_ref is None:
+                    radius_ref = radius
+                # Store info about rules
+                if rule_hash in all_rules:
+                    assert all_rules[rule_hash] == rule_smarts
+                    rules_cnt[rule_hash] += 1
+                else:
+                    all_rules[rule_hash] = rule_smarts
+                    rules_cnt[rule_hash] = 1
+                # Store info about chemicals
+                if chem_id in all_chems:
+                    assert all_chems[chem_id] == chem_smiles
+                    if radius == radius_ref:
+                        chems_cnt[chem_id] += 1
+                else:
+                    all_chems[chem_id] = chem_smiles
+                    if radius == radius_ref:
+                        chems_cnt[chem_id] = 1
+        
+        # Write wish list of rules
+        with open(output['rule_out'], 'w') as ofh:
+            fields = ['Rule_ID', 'Rule_SMARTS']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for rule_id, rule_smarts in all_rules.items():
+                writer.writerow({'Rule_ID': rule_id, 'Rule_SMARTS': rule_smarts})
+            
+        # Select chemicals to keep
+        chems_to_keep = set()
+        for chem_id, count in chems_cnt.items():
+            if (count >= params['max_cutoff']) or (count <= params['min_cutoff']):
+                chems_to_keep.add(chem_id)
+        
+        # Write wish list of chemicals
+        with open(output['chem_out'], 'w') as ofh:
+            fields = ['Substrate_ID', 'Substrate_SMILES']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for chem_id, chem_smiles in all_chems.items():
+                if chem_id in chems_to_keep:
+                    writer.writerow({'Substrate_ID': chem_id, 'Substrate_SMILES': chem_smiles})
+        
+        # Write rule count stats
+        with open(output['rule_stat'], 'w') as ofh:
+            fields = ['Rule_ID', 'Count']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for rule_id, count in sorted(rules_cnt.items(), key=lambda x: x[1], reverse=True):
+                writer.writerow({'Rule_ID': rule_id, 'Count': count})
+        
+        # Write compound count stats
+        with open(output['chem_stat'], 'w') as ofh:
+            fields = ['Substrate_ID', 'Count']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for chem_id, count in sorted(chems_cnt.items(), key=lambda x: x[1], reverse=True):
+                writer.writerow({'Substrate_ID': chem_id, 'Count': count})
+        
+rule split:
+    input:
+        chem_list = 'chems_wish_list.tsv'
+    output:
+        chem_file = dynamic('per_chem/{chem_id}.tsv')
+    params:
+        outdir = 'per_chem'
+    run:
+        import os
+        import csv
+        os.makedirs(params['outdir'], exist_ok=True)
+
+        with open(input['chem_list'], 'r') as ifh:
+            reader = csv.reader(ifh, delimiter='\t')
+            fields = next(reader)
+
+        with open(input['chem_list'], 'r') as ifh:
+            reader = csv.DictReader(ifh, delimiter='\t')
+            for row in reader:
+                chem_id = row['Substrate_ID']
+                chem_path = os.path.join(params['outdir'], chem_id + '.tsv')
+                # with open(chem_path, 'w') as ofh:
+                with open(chem_path, 'w') as ofh:
+                    writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+                    writer.writeheader()
+                    writer.writerow(row)
+
+rule fire:
+    input:
+        chem_file = 'per_chem/{chem_id}.tsv',
+        rule_file = 'rules_wish_list.tsv'
+    output:
+        res_file = 'res/{chem_id}.json.gz'
+    log:
+        "logs/fire_{chem_id}.log"
+    shell:
+        """
+        python rule_fire.py \
+            --ofile {output.res_file} \
+            --compress \
+            infile --rfile {input.rule_file} --cfile {input.chem_file} \
+            > {log} 2>&1
+        """
