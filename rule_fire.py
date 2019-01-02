@@ -87,10 +87,6 @@ def kill(pool):
     pool.terminate()
 
 
-def worker_test(maxtime=5):
-    time.sleep(maxtime)
-
-
 class RuleBurnerCore(object):
     """Apply one rule on one chemical.""" 
 
