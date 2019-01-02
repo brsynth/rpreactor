@@ -1,0 +1,6 @@
+{
+    "__default__" :
+    {
+        "qsub" : "qsub -cwd -o logs/{rule}_{wildcards.chem_id}_cluster_$$.log -j yes -sync yes"
+    }
+}
