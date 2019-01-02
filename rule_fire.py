@@ -6,6 +6,7 @@ Thomas Duigou, INRA, 2018
 
 import os
 import sys
+import gzip
 import json
 import time
 import rdkit
@@ -134,7 +135,7 @@ class RuleBurner(object):
     
     def __init__(
             self, rsmarts_list, csmiles_list, rid_list=None,  cid_list=None,
-            match_timeout=1, fire_timeout=1, ofile=None):
+            match_timeout=1, fire_timeout=1, ofile=None, compress=False):
         """Setting up everything needed for behavor decisions and firing rules.
         
         :param  rsmarts_list:   list of reaction rule SMARTS
@@ -175,6 +176,7 @@ class RuleBurner(object):
         
         # Output
         self._json = list()
+        self._compress = compress
         if not ofile:
             self._ofile = None
         else:
@@ -312,12 +314,21 @@ class RuleBurner(object):
 
     def write_json(self):
         """Write the JSON string."""
+        # Handling file handler
         if self._ofile:
-            ofh = open(self._ofile, 'w')
+            if self._compress:
+                ofh = gzip.open(self._ofile, 'wb', compresslevel=9)
+            else:
+                ofh = open(self._ofile, 'w')
         else:
             ofh = sys.stdout
-        ofh.write('[\n' + ','.join(self._json) + '\n]')
-        ofh.write('\n')
+        # Big string
+        content = '[\n' + ','.join(self._json) + '\n]' + '\n'
+        # Handling compression
+        if self._ofile and self._compress:
+            ofh.write(content.encode())
+        else:
+            ofh.write(content)
         ofh.close()
 
     def compute(self):
@@ -416,12 +427,12 @@ def __cli():
                 rsmarts_list=[args.rsmarts], csmiles_list=[args.csmiles],
                 rid_list=[args.rid], cid_list=[args.cid],
                 match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
-                ofile=args.ofile
+                ofile=args.ofile, compress=args.compress
                 )
         r.compute()
         r.write_json()
 
-    def file_mode(args):
+    def infile_mode(args):
         """Execution mode to be used when rules and chemicals are provided 
         in CSV files.
         """
@@ -450,15 +461,16 @@ def __cli():
                 rsmarts_list=rsmarts_list, csmiles_list=rsmiles_list,
                 rid_list=rids_list, cid_list=cids_list,
                 match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
-                ofile=args.ofile
+                ofile=args.ofile, compress=args.compress
                 )
         r.compute()
         r.write_json()
 
     parser = argparse.ArgumentParser(description=help)
-    parser.add_argument('--match_timeout', help='Rule matching timeout', default=5, type=int)
-    parser.add_argument('--fire_timeout', help='Rule furing timeout', default=5, type=int)
+    parser.add_argument('--match_timeout', help='Rule matching timeout. Default: 1.', default=1, type=int)
+    parser.add_argument('--fire_timeout', help='Rule furing timeout. Default: 1.', default=1, type=int)
     parser.add_argument('--ofile', help='Output file to store results. Default to STDOUT if none provided')
+    parser.add_argument('--compress', action='store_true', help='Enable gzip compression (only when output to file).')
     subparsers = parser.add_subparsers(help='Input mode')
 
     parser_inline = subparsers.add_parser('inline', help='Get inputs from command line')
@@ -468,8 +480,8 @@ def __cli():
     parser_inline.add_argument('--rid', help='Reaction rule ID, optional')
     parser_inline.add_argument('--cid', help='Chemical ID, optional')
     
-    parser_file = subparsers.add_parser('file', help='Get inputs from files')
-    parser_file.set_defaults(func=file_mode)
+    parser_file = subparsers.add_parser('infile', help='Get inputs from files')
+    parser_file.set_defaults(func=infile_mode)
     parser_file.add_argument(
             '--rfile', required=True, help=' '.join([
                     'Reaction rule file.',
