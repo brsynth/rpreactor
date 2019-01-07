@@ -1,50 +1,36 @@
 r"""
-Prepare set of file and apply batch of rules.
+Prepare set of files.
 
 Example:
-snakemake --directory . --snakefile debug.smake -p -j 6 > wf_debug_mnx20181203.log 2>&1
-
-Example for cluster:
-screen
-unset PYTHONPATH
-source activate pyrule
-snakemake -s debug.smake --drmaa " -j yes -q short.q -l h_rt=1:00:00" --drmaa-log-dir logs_cluster --jobs 120 --jobname snakejob.{rule}_{wildcards.chem_id}_{jobid}.sh --jobscript sge.sh --latency-wait 120 --keep-going > wf_debug_mnx20181203_run1.log 2>&1
+snakemake --directory . --snakefile prepare.smake -p --configfile config.yaml > wf_prepare_mnx20181203.log 2>&1
 
 
 Thomas Duigou, INRA, 2018
 """
 
-IN_RULES = 'rules_rall.tsv'
-RADIUS_TO_KEEP = '2 4 6 8'.split()
-MAX_CUTOFF = 19
-MIN_CUTOFF = 2
+IN_RULES = config['IN_RULES']
+RADIUS_TO_KEEP = config['RADIUS_TO_KEEP'].split()
+MAX_CUTOFF = config['MAX_CUTOFF']
+MIN_CUTOFF = config['MIN_CUTOFF']
+FILTER_RULES = config['FILTER_RULES'] if 'FILTER_RULES' in config else "None"
 
-# Cluster: prevent specific rules to be executed on nodes
-localrules: all, init, select, split
+# Cluster: prevent specific rules to be executed from cluster nodes
+localrules: all, select, split, filter_rules
 
 rule all:
     input:
-        dynamic('per_chem/{chem_id}.tsv'),
-        dynamic('res/{chem_id}.json.gz')
-
-rule init:
-    output:
-        logdir = directory('logs'),
-        init_done = touch('init.done')
-    shell:
-        """
-        mkdir -p {output.logdir}
-        """
+        dynamic('per_chem/{chem_id}.tsv')
 
 rule select:
     input:
-        IN_RULES
+        rules_file = IN_RULES
     output:
         rule_out = 'rules_wish_list.tsv',
         chem_out = 'chems_wish_list.tsv',
         rule_stat = 'rules_stat.tsv',
         chem_stat = 'chems_stat.tsv'
     params:
+        rules_filter_file = FILTER_RULES,
         max_cutoff = MAX_CUTOFF,
         min_cutoff = MIN_CUTOFF,
         radius_to_keep = RADIUS_TO_KEEP,
@@ -54,12 +40,20 @@ rule select:
 
         all_rules = dict()
         all_chems = dict()
+        rules_to_filter = set()
         chems_cnt = dict()
         rules_cnt = dict()
         radius_ref = None
 
+        # Get list of rules to filter if any
+        if params['rules_filter_file'] != 'None':
+            with open(params['rules_filter_file'], 'r') as ifh:
+                reader = csv.DictReader(ifh, delimiter='\t')
+                for row in reader:
+                    rules_to_filter.add(row['Rule_ID'])
+
         # Get relevant info
-        with open(input[0], 'r') as ifh:
+        with open(input['rules_file'], 'r') as ifh:
             reader = csv.DictReader(ifh, delimiter='\t')
             for row in reader:
                 rule_hash = row['# Rule_ID'].split('-')[2]
@@ -90,12 +84,17 @@ rule select:
                         chems_cnt[chem_id] = 1
         
         # Write wish list of rules
+        at_least_one = False
         with open(output['rule_out'], 'w') as ofh:
             fields = ['Rule_ID', 'Rule_SMARTS']
             writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
             writer.writeheader()
             for rule_id, rule_smarts in all_rules.items():
-                writer.writerow({'Rule_ID': rule_id, 'Rule_SMARTS': rule_smarts})
+                if rule_id not in rules_to_filter:
+                    at_least_one = True
+                    writer.writerow({'Rule_ID': rule_id, 'Rule_SMARTS': rule_smarts})
+        if not at_least_one:
+            raise AssertionError('No rule in the wish list')
             
         # Select chemicals to keep
         chems_to_keep = set()
@@ -154,21 +153,3 @@ rule split:
                     writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
                     writer.writeheader()
                     writer.writerow(row)
-
-rule fire:
-    input:
-        init_done = 'init.done',
-        chem_file = 'per_chem/{chem_id}.tsv',
-        rule_file = 'rules_wish_list.tsv'
-    output:
-        res_file = 'res/{chem_id}.json.gz'
-    log:
-        "logs/fire_{chem_id}.log"
-    shell:
-        """
-        python rule_fire.py \
-            --ofile {output.res_file} \
-            --compress \
-            infile --rfile {input.rule_file} --cfile {input.chem_file} \
-            > {log} 2>&1
-        """
