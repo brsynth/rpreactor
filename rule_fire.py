@@ -305,7 +305,7 @@ class RuleBurner(object):
         if match_error is not None:
             data['match_error'] = match_error
         # Fire info
-        if len(smiles_list) > 0:
+        if (smiles_list is None) or (len(smiles_list) > 0):
             data['fire'] = True
         else:
             data['fire'] = False
@@ -313,7 +313,7 @@ class RuleBurner(object):
         data['fire_exec_time'] = fire_exec_time
         if fire_error is not None:
             data['fire_error'] = fire_error
-        if len(smiles_list) > 0:
+        if (smiles_list is None) or (len(smiles_list) > 0):
             data['product_smiles'] = smiles_list
             data['product_inchis'] = inchis_list
 
