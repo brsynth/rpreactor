@@ -6,30 +6,35 @@ snakemake --directory . --snakefile debug.smake -p -j 6 > wf_debug_mnx20181203.l
 
 Example for cluster:
 screen
+unset PYTHONPATH
 source activate pyrule
-snakemake -s debug.smake --cluster-config sge.json --cluster-sync "{cluster.qsub}" --jobname snakejob.{rule}_{wildcards.chem_id}_{jobid}.sh --jobs 4 --jobscript sge.sh --latency-wait 100 -F > wf_debug_mnx20181203.log 2>&1
+snakemake -s debug.smake --drmaa " -j yes -q short.q -l h_rt=1:00:00" --drmaa-log-dir logs_cluster --jobs 120 --jobname snakejob.{rule}_{wildcards.chem_id}_{jobid}.sh --jobscript sge.sh --latency-wait 120 --keep-going > wf_debug_mnx20181203_run1.log 2>&1
 
 
 Thomas Duigou, INRA, 2018
 """
 
-# IN_RULES = 'rules_rall.tsv'
-# RADIUS_TO_KEEP = '2 4 6 8'.split()
-# MAX_CUTOFF = 30
-# MIN_CUTOFF = 1
-
-IN_RULES = 'rules_rall_short.tsv'
-RADIUS_TO_KEEP = '0'.split()
-MAX_CUTOFF = 0
-MIN_CUTOFF = 1
+IN_RULES = 'rules_rall.tsv'
+RADIUS_TO_KEEP = '2 4 6 8'.split()
+MAX_CUTOFF = 19
+MIN_CUTOFF = 2
 
 # Cluster: prevent specific rules to be executed on nodes
-localrules: all, select, split
+localrules: all, init, select, split
 
 rule all:
     input:
         dynamic('per_chem/{chem_id}.tsv'),
         dynamic('res/{chem_id}.json.gz')
+
+rule init:
+    output:
+        logdir = directory('logs'),
+        init_done = touch('init.done')
+    shell:
+        """
+        mkdir -p {output.logdir}
+        """
 
 rule select:
     input:
@@ -95,7 +100,7 @@ rule select:
         # Select chemicals to keep
         chems_to_keep = set()
         for chem_id, count in chems_cnt.items():
-            if (count >= params['max_cutoff']) or (count <= params['min_cutoff']):
+            if (count <= params['max_cutoff']) and (count >= params['min_cutoff']):
                 chems_to_keep.add(chem_id)
         
         # Write wish list of chemicals
@@ -152,6 +157,7 @@ rule split:
 
 rule fire:
     input:
+        init_done = 'init.done',
         chem_file = 'per_chem/{chem_id}.tsv',
         rule_file = 'rules_wish_list.tsv'
     output:
