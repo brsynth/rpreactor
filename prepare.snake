@@ -1,0 +1,157 @@
+r"""
+Prepare set of files.
+
+Example (to be excuted from project parent folder):
+snakemake --directory . --snakefile wf/prepare.snake -p --configfile wf/config.yml > wf_prepare_mnx20181203.log 2>&1
+
+
+Thomas Duigou, INRA, 2018
+"""
+
+ 
+JOB_DIR = config['JOB_DIR']
+IN_RULES = config['IN_RULES']
+RADIUS_TO_KEEP = config['RADIUS_TO_KEEP'].split()
+MAX_CUTOFF = config['MAX_CUTOFF']
+MIN_CUTOFF = config['MIN_CUTOFF']
+FILTER_RULES = config['FILTER_RULES'] if 'FILTER_RULES' in config else []
+
+# Cluster: prevent specific rules to be executed from cluster nodes
+localrules: all, select, split
+
+rule select:
+    input:
+        rules_file = IN_RULES
+    output:
+        rule_out = '{job_dir}/rules_wish_list.tsv',
+        chem_out = '{job_dir}/chems_wish_list.tsv',
+        rule_stat = '{job_dir}/rules_stat.tsv',
+        chem_stat = '{job_dir}/chems_stat.tsv'
+    params:
+        rule_filter_files = FILTER_RULES,
+        max_cutoff = MAX_CUTOFF,
+        min_cutoff = MIN_CUTOFF,
+        radius_to_keep = RADIUS_TO_KEEP,
+        radius_to_count_chem = RADIUS_TO_KEEP[0]
+    run:
+        import csv
+
+        all_rules = dict()
+        all_chems = dict()
+        rules_to_filter = set()
+        chems_cnt = dict()
+        rules_cnt = dict()
+        radius_ref = None
+
+        # Get list of rules to filter if any
+        if len(params['rule_filter_files']) > 0:
+            for ifilter in params['rule_filter_files']:
+                print(ifilter)
+                with open(ifilter, 'r') as ifh:
+                    reader = csv.DictReader(ifh, delimiter='\t')
+                    for row in reader:
+                        rules_to_filter.add(row['Rule_ID'])
+
+        # Get relevant info
+        with open(input['rules_file'], 'r') as ifh:
+            reader = csv.DictReader(ifh, delimiter='\t')
+            for row in reader:
+                rule_hash = row['# Rule_ID'].split('-')[2]
+                rule_smarts = row['Rule_SMARTS']
+                chem_id = row['Substrate_ID']
+                chem_smiles = row['Substrate_SMILES']
+                # Check radius
+                radius = str(int(row['Diameter'])//2)
+                if radius not in params['radius_to_keep']:
+                    continue
+                elif radius_ref is None:
+                    radius_ref = radius
+                # Store info about rules
+                if rule_hash in all_rules:
+                    assert all_rules[rule_hash] == rule_smarts
+                    rules_cnt[rule_hash] += 1
+                else:
+                    all_rules[rule_hash] = rule_smarts
+                    rules_cnt[rule_hash] = 1
+                # Store info about chemicals
+                if chem_id in all_chems:
+                    assert all_chems[chem_id] == chem_smiles
+                    if radius == radius_ref:
+                        chems_cnt[chem_id] += 1
+                else:
+                    all_chems[chem_id] = chem_smiles
+                    if radius == radius_ref:
+                        chems_cnt[chem_id] = 1
+        
+        # Write wish list of rules
+        at_least_one = False
+        with open(output['rule_out'], 'w') as ofh:
+            fields = ['Rule_ID', 'Rule_SMARTS']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for rule_id, rule_smarts in all_rules.items():
+                if rule_id not in rules_to_filter:
+                    at_least_one = True
+                    writer.writerow({'Rule_ID': rule_id, 'Rule_SMARTS': rule_smarts})
+        if not at_least_one:
+            raise AssertionError('No rule in the wish list')
+            
+        # Select chemicals to keep
+        chems_to_keep = set()
+        for chem_id, count in chems_cnt.items():
+            if (count <= params['max_cutoff']) and (count >= params['min_cutoff']):
+                chems_to_keep.add(chem_id)
+        
+        # Write wish list of chemicals
+        with open(output['chem_out'], 'w') as ofh:
+            fields = ['Substrate_ID', 'Substrate_SMILES']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for chem_id, chem_smiles in all_chems.items():
+                if chem_id in chems_to_keep:
+                    writer.writerow({'Substrate_ID': chem_id, 'Substrate_SMILES': chem_smiles})
+        
+        # Write rule count stats
+        with open(output['rule_stat'], 'w') as ofh:
+            fields = ['Rule_ID', 'Count']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for rule_id, count in sorted(rules_cnt.items(), key=lambda x: x[1], reverse=True):
+                writer.writerow({'Rule_ID': rule_id, 'Count': count})
+        
+        # Write compound count stats
+        with open(output['chem_stat'], 'w') as ofh:
+            fields = ['Substrate_ID', 'Count']
+            writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+            writer.writeheader()
+            for chem_id, count in sorted(chems_cnt.items(), key=lambda x: x[1], reverse=True):
+                writer.writerow({'Substrate_ID': chem_id, 'Count': count})
+        
+rule split:
+    input:
+        chem_list = '{job_dir}/chems_wish_list.tsv'
+    output:
+        outdir = directory('{job_dir}/per_chem')
+    run:
+        import os
+        import csv
+        os.makedirs(output['outdir'], exist_ok=True)
+
+        with open(input['chem_list'], 'r') as ifh:
+            reader = csv.reader(ifh, delimiter='\t')
+            fields = next(reader)
+
+        with open(input['chem_list'], 'r') as ifh:
+            reader = csv.DictReader(ifh, delimiter='\t')
+            for row in reader:
+                chem_id = row['Substrate_ID']
+                chem_path = os.path.join(output['outdir'], chem_id + '.tsv')
+                # with open(chem_path, 'w') as ofh:
+                with open(chem_path, 'w') as ofh:
+                    writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
+                    writer.writeheader()
+                    writer.writerow(row)
+
+rule all:
+    input:
+        '{job_dir}/per_chem'.format(job_dir=JOB_DIR)

@@ -1,0 +1,19 @@
+# Details on parameters...
+# OUTDIR:           str, output directory
+# IN_RULES:         str, file containing rules
+# RADIUS_TO_KEEP:   str, radius to consider. If several, use spaces as value
+#                   separator.
+# MAX_CUTOFF:       int, maximal substrate occurence. Substrate appearing more
+#                   than MAX_CUTOFF will be removed from the wish list 
+# MIN_CUTOFF:       int, minimal substrate occurence.
+# FILTER_RULES:     list, path to a file (or "None") to be used for filtering
+#                   out specific from the final wish list of rules. If list is
+#                   empty no attempt will be made to flter out rules.
+JOB_DIR: 'job/r4_debug'
+IN_RULES: 'data/mnx_20181203/rule/aroaam_nostereo_final/rules_rall.tsv'
+# IN_RULES: 'data/mnx_20181203/rule/aroaam_nostereo_final/rules_rall_short.tsv'
+RADIUS_TO_KEEP: '4'
+MAX_CUTOFF: 40
+MIN_CUTOFF: 40
+FILTER_RULES: []
+  # - 'job/run_r1/-3-5-7-9_w1_min1_maxINF/rules_wish_list_FROM_run_r2-4-6-8_w1_min2_max19.tsv'
