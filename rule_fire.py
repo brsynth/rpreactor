@@ -31,7 +31,7 @@ class RuleConversionError(RuleBurnerError):
         self._msg = msg
 
     def __str__(self):
-        return "RULE-CONVERSION-ERROR: {}.".format(self._msg)
+        return "RULE-CONVERSION-ERROR: {}".format(self._msg)
 
 class RuleFireError(RuleBurnerError):
     """Raised when something went wrong when firing a rule."""
@@ -40,7 +40,7 @@ class RuleFireError(RuleBurnerError):
         self._msg = msg
 
     def __str__(self):
-        return "RULE-FIRE-ERROR: {}.".format(self._msg)
+        return "RULE-FIRE-ERROR: {}".format(self._msg)
 
 class RuleMatchError(RuleBurnerError):
     """Raised when something went wrong when matching a rule."""
@@ -49,7 +49,7 @@ class RuleMatchError(RuleBurnerError):
         self._msg = msg
 
     def __str__(self):
-        return "RULE-MATCH-ERROR: {}.".format(self._msg)
+        return "RULE-MATCH-ERROR: {}".format(self._msg)
 
 class ChemConversionError(RuleBurnerError):
     """Raised when something went wrong during chemical conversion to RDKit mol object and sanitization."""
@@ -58,7 +58,7 @@ class ChemConversionError(RuleBurnerError):
         self._msg = msg
 
     def __str__(self):
-        return "CHEM-CONVERSION-ERROR: {}.".format(self._msg)
+        return "CHEM-CONVERSION-ERROR: {}".format(self._msg)
 
 def worker_match(kwargs):
     """Check if a chemical can be fired by a rule according to left side."""
@@ -243,14 +243,18 @@ class RuleBurner(object):
                 list_inchis = list()
                 list_smiles = list()
                 list_std = list()
-                # Standadize
+                # Standardize
                 for rd_mol in tuple_raw:
                     for rd_frag in Chem.GetMolFrags(rd_mol, asMols=True, sanitizeFrags=False):
                         self._standardize_chemical(rd_frag)
                         list_std.append(rd_frag)
                 # Get InChIs
                 for rd_mol in list_std:
-                    list_inchis.append(Chem.MolToInchi(rd_mol))
+                    inchi = Chem.MolToInchi(rd_mol)
+                    if inchi: 
+                        list_inchis.append(inchi)
+                    else:
+                        raise ChemConversionError("Product conversion to InChI raised an empty string")
                 # Get unique depiction
                 depic = '.'.join(sorted(list_inchis))
                 # Continue only if depiction never met
@@ -263,6 +267,9 @@ class RuleBurner(object):
                 # Finally store those that reach the end
                 list_list_inchis.append(list_inchis)
                 list_list_smiles.append(list_smiles)
+            except ChemConversionError as e:
+                logging.warning("{}".format(e))
+                raise e
             except Exception as e:
                 logging.warning("Cannot handle a tuple of result, skipped")
                 logging.warning("{}".format(e))
@@ -397,6 +404,11 @@ class RuleBurner(object):
                     smiles, inchis = self._handle_results(ans)
                     fire_timed_out = False
                     fire_error = None
+                except ChemConversionError as e:
+                    smiles = None
+                    inchis = None
+                    fire_timed_out = False
+                    fire_error = str(e)
                 except mp.TimeoutError as e:
                     fire_exec_time = None
                     smiles = None
