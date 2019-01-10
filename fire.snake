@@ -10,7 +10,7 @@ unset PYTHONPATH
 source activate pyrule
 snakemake --directory . --snakefile wf/fire.snake --drmaa " -j yes -q short.q -l h_rt=1:00:00" --drmaa-log-dir logs_cluster --jobs 120 --jobname snakejob.{rule}_{wildcards.chem_id}_{jobid}.sh --jobscript wf/sge.sh --latency-wait 120 --keep-going --configfile wf/config.yml > wf_fire_mnx20181203.log 2>&1
 
-Thomas Duigou, INRA, 2018
+Thomas Duigou, INRA, 2018-2019
 """
 
 JOB_DIR = config['JOB_DIR']
@@ -41,12 +41,12 @@ rule fire:
     output:
         res_file = '{job_dir}/res/{chem_id}.json.gz'
     log:
-        '{job_dir}/logs/fire_{chem_id}.log'
+        '{job_dir}/logs/fire_{chem_id}.gz'
     shell:
         """
         python bin/rule_fire/rule_fire.py \
             --ofile {output.res_file} \
             --compress \
             infile --rfile {input.rule_file} --cfile {input.chem_file} \
-            > {log} 2>&1
+            2>&1 | gzip > {log}
         """

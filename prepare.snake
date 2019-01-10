@@ -5,7 +5,7 @@ Example (to be excuted from project parent folder):
 snakemake --directory . --snakefile wf/prepare.snake -p --configfile wf/config.yml > wf_prepare_mnx20181203.log 2>&1
 
 
-Thomas Duigou, INRA, 2018
+Thomas Duigou, INRA, 2018-2019
 """
 
  
@@ -18,6 +18,10 @@ FILTER_RULES = config['FILTER_RULES'] if 'FILTER_RULES' in config else []
 
 # Cluster: prevent specific rules to be executed from cluster nodes
 localrules: all, select, split
+
+rule all:
+    input:
+        '{job_dir}/per_chem'.format(job_dir=JOB_DIR)
 
 rule select:
     input:
@@ -151,7 +155,3 @@ rule split:
                     writer = csv.DictWriter(ofh, fieldnames=fields, quoting=csv.QUOTE_NONE, delimiter='\t')
                     writer.writeheader()
                     writer.writerow(row)
-
-rule all:
-    input:
-        '{job_dir}/per_chem'.format(job_dir=JOB_DIR)
