@@ -220,8 +220,8 @@ class RuleBurner(object):
             end_time = time.time()
             exec_time = round(end_time - start_time, 4)
         except mp.TimeoutError as e:
-            kill(pool)
-            self._pool = Pool(processes=1)
+            kill(self._pool)
+            self._pool = mp.Pool(processes=1)
             raise e
         except Exception as e:
             raise e
