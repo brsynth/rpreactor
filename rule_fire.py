@@ -251,7 +251,7 @@ class RuleBurner(object):
                 for rd_mol in tuple_raw:
                     for rd_frag in Chem.GetMolFrags(rd_mol, asMols=True, sanitizeFrags=False):
                         self._standardize_chemical(rd_frag)
-                        list_std.append(Chem.AddHs(rd_mol))  # TODO: add option for that
+                        list_std.append(Chem.AddHs(rd_frag))  # TODO: add option for that
                         # list_std.append(rd_frag)
                 # Get InChIs
                 self._rdkit_logger.setLevel(RDLogger.ERROR)  # To decrease verbosity of Inchi API
