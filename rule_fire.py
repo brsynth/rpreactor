@@ -17,6 +17,7 @@ import multiprocessing as mp
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit import RDLogger
 
 
 class RuleBurnerError(Exception):
@@ -161,6 +162,9 @@ class RuleBurner(object):
         self._match_timeout = match_timeout
         self._fire_timeout = fire_timeout
         
+        # RDKit logging Handling
+        self._rdkit_logger = RDLogger.logger()
+        
         # Check for consistency between depictions and IDs
         try:
             if self._rid_list:
@@ -250,12 +254,14 @@ class RuleBurner(object):
                         list_std.append(Chem.AddHs(rd_mol))  # TODO: add option for that
                         # list_std.append(rd_frag)
                 # Get InChIs
+                self._rdkit_logger.setLevel(RDLogger.ERROR)  # To decrease verbosity of Inchi API
                 for rd_mol in list_std:
                     inchi = Chem.MolToInchi(rd_mol)
                     if inchi: 
                         list_inchis.append(inchi)
                     else:
                         raise ChemConversionError("Product conversion to InChI raised an empty string")
+                self._rdkit_logger.setLevel(RDLogger.INFO)  # Guess is that RDKit level is not more verbose than info..
                 # Get unique depiction
                 depic = '.'.join(sorted(list_inchis))
                 # Continue only if depiction never met
