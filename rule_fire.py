@@ -19,7 +19,6 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 
-
 class RuleBurnerError(Exception):
     """Home made exception."""
     pass
@@ -248,7 +247,8 @@ class RuleBurner(object):
                 for rd_mol in tuple_raw:
                     for rd_frag in Chem.GetMolFrags(rd_mol, asMols=True, sanitizeFrags=False):
                         self._standardize_chemical(rd_frag)
-                        list_std.append(rd_frag)
+                        list_std.append(Chem.AddHs(rd_mol))  # TODO: add option for that
+                        # list_std.append(rd_frag)
                 # Get InChIs
                 for rd_mol in list_std:
                     inchi = Chem.MolToInchi(rd_mol)
@@ -372,6 +372,7 @@ class RuleBurner(object):
                 try:
                     rd_mol = Chem.MolFromSmiles(csmiles, sanitize=False)  # Important: Sanitize = False
                     self._standardize_chemical(rd_mol)
+                    rd_mol = Chem.AddHs(rd_mol)  # TODO: add option for that
                 except Exception as e:
                     raise ChemConversionError(e) from e
                 # General args to used for both matching and firing
