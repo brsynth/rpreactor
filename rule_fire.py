@@ -148,8 +148,8 @@ class RuleBurner(object):
         """
         
         # Internal settigns
-        self._STRIP_PARENTHESIS = True  # Surrounding parenthesis should be removed for left side matching
         self._INDENT_JSON = True
+        self._TRY_MATCH = False
         
         # Input
         self._rsmarts_list = rsmarts_list
@@ -158,6 +158,7 @@ class RuleBurner(object):
         self._cid_list = cid_list
     
         # Settings
+        self._try_match = self._TRY_MATCH  # TODO: add option for that
         self._match_timeout = match_timeout
         self._fire_timeout = fire_timeout
         
@@ -306,11 +307,12 @@ class RuleBurner(object):
             # 'substrate_smiles': csmiles,
         }
         # Match info
-        data['match'] = has_match
-        data['match_timed_out'] = match_timed_out
-        data['match_exec_time'] = match_exec_time
-        if match_error is not None:
-            data['match_error'] = match_error
+        if self._try_match:
+            data['match'] = has_match
+            data['match_timed_out'] = match_timed_out
+            data['match_exec_time'] = match_exec_time
+            if match_error is not None:
+                data['match_error'] = match_error
         # Fire info
         if (smiles_list is None) or (len(smiles_list) > 0):
             data['fire'] = True
@@ -378,23 +380,28 @@ class RuleBurner(object):
                         'rd_mol': rd_mol
                         }
                 # Matching
-                try:
-                    has_match, match_exec_time = self._run_with_timeout(
-                            worker=worker_match, kwargs=kwargs,
-                            timeout=self._match_timeout
-                            )
-                    match_timed_out = False
-                    match_error = None
-                except mp.TimeoutError as e:
-                    has_match = None
-                    match_exec_time = None
-                    match_timed_out = True
-                    match_error = str(e)
-                except Exception as e:
-                    has_match = None
-                    match_exec_time = None
-                    match_timed_out = False
-                    match_error = str(e)
+                has_match = None
+                match_exec_time = None
+                match_timed_out = None
+                match_error = None
+                if self._try_match:
+                    try:
+                        has_match, match_exec_time = self._run_with_timeout(
+                                worker=worker_match, kwargs=kwargs,
+                                timeout=self._match_timeout
+                                )
+                        match_timed_out = False
+                        match_error = None
+                    except mp.TimeoutError as e:
+                        has_match = None
+                        match_exec_time = None
+                        match_timed_out = True
+                        match_error = str(e)
+                    except Exception as e:
+                        has_match = None
+                        match_exec_time = None
+                        match_timed_out = False
+                        match_error = str(e)
                 # Firing
                 try:
                     ans, fire_exec_time = self._run_with_timeout(
@@ -423,12 +430,19 @@ class RuleBurner(object):
                     fire_error = str(e)
                 # JSONify and store
                 json_str = self._jsonify(
-                        rsmarts=rsmarts, csmiles=csmiles, rid=rid, cid=cid,
-                        has_match=has_match, match_timed_out=match_timed_out,
-                        match_exec_time=match_exec_time, match_error=match_error,
-                        fire_timed_out=fire_timed_out, fire_exec_time=fire_exec_time,
+                        rsmarts=rsmarts,
+                        csmiles=csmiles,
+                        rid=rid,
+                        cid=cid,
+                        has_match=has_match,
+                        match_timed_out=match_timed_out,
+                        match_exec_time=match_exec_time,
+                        match_error=match_error,
+                        fire_timed_out=fire_timed_out,
+                        fire_exec_time=fire_exec_time,
                         fire_error=fire_error,
-                        smiles_list=smiles, inchis_list=inchis
+                        smiles_list=smiles,
+                        inchis_list=inchis
                         )
                 self._json.append(json_str)
 
