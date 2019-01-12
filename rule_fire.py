@@ -473,8 +473,8 @@ def __cli():
         with open(args.cfile, 'r') as ifh:
             reader = csv.DictReader(ifh, delimiter='\t')
             for row in reader:
-                rsmiles_list.append(row['Substrate_SMILES'].strip())
-                cids_list.append(row['Substrate_ID'].strip())
+                rsmiles_list.append(row['Chemical_SMILES'].strip())
+                cids_list.append(row['Chemical_ID'].strip())
                 
         r = RuleBurner(
                 rsmarts_list=rsmarts_list, csmiles_list=rsmiles_list,
@@ -516,8 +516,8 @@ def __cli():
                     'Chemical file.',
                     'Tab separated columns.',
                     'One chemical per line.',
-                    'Mandatory column: Substrate_SMILES.',
-                    'Optional column: Substrate_ID.',
+                    'Mandatory column: Chemical_SMILES.',
+                    'Optional column: Chemical_ID.',
                     'Other columns will be ignored.'
                     ])
             )
