@@ -261,7 +261,7 @@ class RuleBurner(object):
                         list_inchis.append(inchi)
                     else:
                         raise ChemConversionError("Product conversion to InChI raised an empty string")
-                self._rdkit_logger.setLevel(RDLogger.INFO)  # Guess is that RDKit level is not more verbose than info..
+                self._rdkit_logger.setLevel(RDLogger.WARNING)  # Guess is that RDKit level is not more verbose than info..
                 # Get unique depiction
                 depic = '.'.join(sorted(list_inchis))
                 # Continue only if depiction never met
