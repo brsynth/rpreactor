@@ -423,18 +423,22 @@ class RuleBurner(object):
                     inchis = None
                     fire_timed_out = False
                     fire_error = str(e)
+                    logging.warning(e)
                 except mp.TimeoutError as e:
                     fire_exec_time = None
                     smiles = None
                     inchis = None
                     fire_timed_out = True
                     fire_error = str(e)
+                    logging.error('TIMEOUT: cid={}, rid={}'.format(cid, rid))
+                    logging.error('TIMEOUT: original error={}'.format(e))
                 except Exception as e:
                     fire_exec_time = None
                     smiles = None
                     inchis = None
                     fire_timed_out = False
                     fire_error = str(e)
+                    logging.warning(e)
                 # JSONify and store
                 json_str = self._jsonify(
                         rsmarts=rsmarts,
