@@ -85,6 +85,11 @@ def kill(pool):
     # .is_alive() will reap dead process
     while any(p.is_alive() for p in pool._pool):
         pass
+    # Get-lucky workaround: force releasing lock
+    try:
+        pool._inqueue._rlock.release()
+    except ValueError as e:
+        logging.error(e)
     pool.terminate()
 
 
