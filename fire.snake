@@ -8,22 +8,23 @@ Cluster example:
 screen
 unset PYTHONPATH
 source activate pyrule
-snakemake --directory . --snakefile wf/fire.snake --drmaa " -j yes -q short.q -l h_rt=1:00:00" --drmaa-log-dir logs_cluster --jobs 120 --jobname snakejob.{rule}_{wildcards.chem_id}_{jobid}.sh --jobscript wf/sge.sh --latency-wait 120 --keep-going --configfile wf/config.yml > wf_fire_mnx20181203.log 2>&1
+snakemake --directory . --snakefile wf/fire.snake --drmaa " -j yes -q short.q -l h_rt=1:00:00" --drmaa-log-dir logs_cluster --jobs 120 --jobname snakejob.{rule}_{wildcards.inchikey}_r{wildcards.radius}_{jobid}.sh --jobscript wf/sge.sh --latency-wait 120 --keep-going --configfile wf/config.yml > wf_fire_mnx20190112.log 2>&1
 
 Thomas Duigou, INRA, 2018-2019
 """
 
 JOB_DIR = config['JOB_DIR']
 
-# Get compound IDs from "per_chem" folder content
-CHEM_IDS, = glob_wildcards(os.path.join(JOB_DIR, "per_chem/{chem_id}.tsv"))
+# Get InchiKeys and radisu from folder content
+INCHIKEYS, = glob_wildcards(os.path.join(JOB_DIR, "chemicals/{inchikey}.tsv"))
+RADIUS, = glob_wildcards(os.path.join(JOB_DIR, "rules/r{radius}.tsv"))
 
 # Cluster: prevent specific rules to be executed from cluster nodes
 localrules: all, init
 
 rule all:
     input:
-        expand('{job_dir}/res/{chem_id}.json.gz', chem_id=CHEM_IDS, job_dir=JOB_DIR)
+        expand('{job_dir}/res/{inchikey}_r{radius}.json.gz', inchikey=INCHIKEYS, radius=RADIUS, job_dir=JOB_DIR)
 
 rule init:
     output:
@@ -36,17 +37,17 @@ rule init:
 rule fire:
     input:
         init_done = '{job_dir}/logs',
-        chem_file = '{job_dir}/per_chem/{chem_id}.tsv',
-        rule_file = '{job_dir}/rules_wish_list.tsv'
+        chem_file = '{job_dir}/chemicals/{inchikey}.tsv',
+        rule_file = '{job_dir}/rules/r{radius}.tsv'
     output:
-        res_file = '{job_dir}/res/{chem_id}.json.gz'
+        res_file = '{job_dir}/res/{inchikey}_r{radius}.json.gz'
     log:
-        '{job_dir}/logs/fire_{chem_id}.gz'
+        '{job_dir}/logs/fire_{inchikey}_r{radius}.log'
     shell:
         """
         python bin/rule_fire/rule_fire.py \
             --ofile {output.res_file} \
             --compress \
             infile --rfile {input.rule_file} --cfile {input.chem_file} \
-            2>&1 | gzip > {log}
+            > {log} 2>&1
         """
