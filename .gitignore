@@ -1,5 +1,3 @@
 \.snakemake/
 \.DS_Store
-.snakemake
-.DS_Store
 *.gz

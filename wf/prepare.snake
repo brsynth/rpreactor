@@ -1,8 +1,8 @@
 r"""
 Prepare set of files.
 
-Example (to be excuted from project parent folder):
-snakemake --directory . --snakefile wf/prepare.snake -p --configfile wf/config.yml > wf_prepare_mnx20181203.log 2>&1
+Example (to be excuted from project root folder):
+snakemake --directory . --snakefile bin/rule_fire/prepare.snake -p --configfile bin/rule_fire/config.yml > wf_prepare_mnx20181203.log 2>&1
 
 
 Thomas Duigou, INRA, 2018-2019

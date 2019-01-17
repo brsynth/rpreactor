@@ -1,14 +1,14 @@
 r"""
 Prepare set of files.
 
-Simple example:
-snakemake --directory . --snakefile wf/fire.snake -p --jobs 6 --configfile wf/config.yml > wf_fire_mnx20181203.log 2>&1
+Simple example (from project root folder):
+snakemake --directory . --snakefile bin/rule_fire/fire.snake -p --jobs 6 --configfile bin/rule_fire/config.yml > wf_fire_mnx20181203.log 2>&1
 
 Cluster example:
 screen
 unset PYTHONPATH
 source activate pyrule
-snakemake --directory . --snakefile wf/fire.snake --drmaa " -j yes -q short.q -l h_rt=1:00:00" --drmaa-log-dir logs_cluster --jobs 120 --jobname snakejob.{rule}_{wildcards.inchikey}_r{wildcards.radius}_{jobid}.sh --jobscript wf/sge.sh --latency-wait 120 --keep-going --configfile wf/config.yml > wf_fire_mnx20190112.log 2>&1
+snakemake --directory . --snakefile bin/rule_fire/fire.snake --drmaa " -j yes -q short.q -l h_rt=1:00:00" --drmaa-log-dir logs_cluster --jobs 120 --jobname snakejob.{rule}_{wildcards.inchikey}_r{wildcards.radius}_{jobid}.sh --jobscript wf/sge.sh --latency-wait 120 --keep-going --configfile bin/rule_fire/config.yml > wf_fire_mnx20190112.log 2>&1
 
 Thomas Duigou, INRA, 2018-2019
 """
