@@ -1,3 +1,4 @@
 \.snakemake/
 \.DS_Store
 *.gz
+__pycache__
