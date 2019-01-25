@@ -15,6 +15,7 @@ conda create --name pyrule python=3.6
 source activate pyrule
 conda install --channel rdkit rdkit=2018.09.1.0
 conda install --channel bioconda --channel conda-forge snakemake=5.4.0
+conda install --channel conda-forge pytest
 ```
 
 ## Usage
