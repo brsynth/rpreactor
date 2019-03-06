@@ -62,10 +62,13 @@ def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
     :param      tuple_tuple_rdmol:   tuple of tuple of RDKit Mol
     :param      add_hs:              append Hs, bool (default: True)
     :param      rm_stereo:           remove stereo, bool (default: True)
+    :param      return_failed        return  (default: False)
     :returns    list_list_std:       list of list of standardized RDKit Mol
+    :returns    list_list_failed:    list of list of failed RDKit Mol (if asked)
     """
     uniq_depics = set()
     list_list_std = list()
+    list_list_failed = list()
 
     for tuple_rdmol in tuple_tuple_rdmol:
         try: 
@@ -92,11 +95,14 @@ def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
                 list_list_std.append(list_std)
         except ChemConversionError as e:
             logging.warning("{}".format(e))
+            list_list_failed.append(tuple_rdmol)
             raise e
         except Exception as e:
             logging.warning("Cannot handle a tuple of result, skipped")
             logging.warning("{}".format(e))
-    return list_list_std
+            list_list_failed.append(tuple_rdmol)
+
+    return list_list_std, list_list_failed
 
 
 def handle_results(list_list_rdmol):

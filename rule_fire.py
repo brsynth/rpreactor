@@ -288,7 +288,7 @@ class RuleBurner(object):
                             worker=worker_fire, kwargs=kwargs,
                             timeout=self._fire_timeout
                             )
-                    rdmols = standardize_results(ans)
+                    rdmols, failed = standardize_results(ans)
                     inchikeys, inchis, smiles = handle_results(rdmols)
                     fire_timed_out = False
                     fire_error = None

@@ -50,7 +50,7 @@ def test_handle_result():
             Chem.MolFromSmiles('[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C]([H])([H])[H]'),
             Chem.MolFromSmiles('[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]')
             )
-    tuple_tuple_rdmol = standardize_results(tuple_tuple_rdmol=(tuple_raw,), add_hs=True, rm_stereo=True)
+    tuple_tuple_rdmol, tuple_tuple_failed = standardize_results(tuple_tuple_rdmol=(tuple_raw,), add_hs=True, rm_stereo=True)
     inchikeys, inchis, smiles = handle_results(list_list_rdmol=tuple_tuple_rdmol)
     # Check number products
     assert len(inchikeys) == len(inchis) == len(smiles) == 1   # Only one set of result
