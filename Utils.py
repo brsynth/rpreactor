@@ -49,7 +49,9 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True):
         if rm_stereo:  # Important: do this before adding Hs (else re-add Hs)
             rdmol = wild_stereo_removal(rdmol)
         if add_hs:
-            rdmol = Chem.AddHs(rdmol)   
+            rdmol = Chem.AddHs(rdmol)
+        else:
+            rdmol = Chem.RemoveHs(rdmol)
         return rdmol
     except Exception as e:
         logging.warning(e)
