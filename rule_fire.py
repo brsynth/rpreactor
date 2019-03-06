@@ -20,6 +20,7 @@ from rdkit.Chem import AllChem
 from rdkit import RDLogger
 
 from Core import RuleBurnerCore
+from Utils import standardize_chemical, standardize_results, handle_results, ChemConversionError
 
 class RuleBurnerError(Exception):
     """Home made exception."""
@@ -34,15 +35,6 @@ class RuleConversionError(RuleBurnerError):
     def __str__(self):
         return "RULE-CONVERSION-ERROR: {}".format(self._msg)
 
-
-class ChemConversionError(RuleBurnerError):
-    """Raised when something went wrong during chemical conversion to RDKit mol object and sanitization."""
-    
-    def __init__(self, msg):
-        self._msg = msg
-
-    def __str__(self):
-        return "CHEM-CONVERSION-ERROR: {}".format(self._msg)
 
 def worker_match(kwargs):
     """Check if a chemical can be fired by a rule according to left side."""
@@ -137,22 +129,6 @@ class RuleBurner(object):
         
         # A place to swim
         self._pool = None
-                
-    def _standardize_chemical(self, rd_mol):
-        """Standardize a chemical using RDKit sanitize method.
-
-        :param      rd_mol:  RDKit mol object
-        :returns    nothing, in place operation
-        """
-        try:
-            Chem.SanitizeMol(rd_mol)
-        except ValueError as e:  # In case kekulize lead to some issues
-            saniFlag = Chem.SanitizeFlags.SANITIZE_ALL
-            saniFlag ^= Chem.SanitizeFlags.SANITIZE_KEKULIZE
-            Chem.SanitizeMol(rd_mol, sanitizeOps=saniFlag)
-            logging.warning('Partial sanization only')
-        except Exception as e:
-            raise e
 
     def _run_with_timeout(self, worker, kwargs, timeout=5):
         """Generic wrapper making use of multiprocessing to garantee effective timeout.
@@ -178,63 +154,11 @@ class RuleBurner(object):
             raise e
         return ans, exec_time
 
-    def _handle_results(self, tuple_tuple_raw):
-        """Perform sanitization, InChI and SMILES generation and remove duplicates.
-        
-        :param      tuple_tuple_raw:        tuple of tuple of RDKit Mol
-        :returns    tuple_tuple_inchis:     tuple of tuple of InChIs
-        :returns    tuple_tuple_smiles:     tuple of tuple of SMILES
-        """
-        list_list_inchis = list()
-        list_list_smiles = list()
-        uniq_depics = set()
-        
-        for tuple_raw in tuple_tuple_raw:
-            try: 
-                list_inchis = list()
-                list_smiles = list()
-                list_std = list()
-                # Standardize
-                for rd_mol in tuple_raw:
-                    for rd_frag in Chem.GetMolFrags(rd_mol, asMols=True, sanitizeFrags=False):
-                        self._standardize_chemical(rd_frag)
-                        list_std.append(Chem.AddHs(rd_frag))  # TODO: add option for that
-                        # list_std.append(rd_frag)
-                # Get InChIs
-                self._rdkit_logger.setLevel(RDLogger.ERROR)  # To decrease verbosity of Inchi API
-                for rd_mol in list_std:
-                    inchi = Chem.MolToInchi(rd_mol)
-                    if inchi: 
-                        list_inchis.append(inchi)
-                    else:
-                        raise ChemConversionError("Product conversion to InChI raised an empty string")
-                self._rdkit_logger.setLevel(RDLogger.WARNING)  # Guess is that RDKit level is not more verbose than info..
-                # Get unique depiction
-                depic = '.'.join(sorted(list_inchis))
-                # Continue only if depiction never met
-                if depic in uniq_depics:
-                    continue
-                uniq_depics.add(depic)
-                # Get SMILES
-                for rd_mol in list_std:
-                    list_smiles.append(Chem.MolToSmiles(rd_mol))
-                # Finally store those that reach the end
-                list_list_inchis.append(list_inchis)
-                list_list_smiles.append(list_smiles)
-            except ChemConversionError as e:
-                logging.warning("{}".format(e))
-                raise e
-            except Exception as e:
-                logging.warning("Cannot handle a tuple of result, skipped")
-                logging.warning("{}".format(e))
-        return list_list_smiles, list_list_inchis  # Quick but dirty
-
-
     def _jsonify(self, rsmarts, csmiles, rid=None, cid=None,
                  has_match=None, match_timed_out=None,
                  match_exec_time=None, match_error=None,
                  fire_timed_out=None, fire_exec_time=None, fire_error=None,
-                 smiles_list=None, inchis_list=None):
+                 inchikeys_list=None, inchis_list=None, smiles_list=None):
         """Return the results as a JSON string.
         
         :param      rsmarts:            str, reaction rule string depiction
@@ -248,8 +172,9 @@ class RuleBurner(object):
         :param      fire_timed_out:     bool, True if timeout reached
         :param      fire_exec_time:     bool, execution time for firing
         :param      fire_error:         str, error message if any, else None
+        :param      inchikeys_list:     list of list, Inchikeys of products
+        :param      inchis_list:        list of list, Inchis of products
         :param      smiles_list:        list of list, SMILES of products
-        :param      inchis_list:        list of list, SMILES of InChIs
         :returns    json_string:        JSON string
         """
         # General info
@@ -276,8 +201,9 @@ class RuleBurner(object):
         if fire_error is not None:
             data['fire_error'] = fire_error
         if (smiles_list is None) or (len(smiles_list) > 0):
-            data['product_smiles'] = smiles_list
+            data['product_inchikeys'] = inchikeys_list
             data['product_inchis'] = inchis_list
+            data['product_smiles'] = smiles_list
 
         return json.dumps(obj=data, indent=self._INDENT_JSON)
 
@@ -324,7 +250,7 @@ class RuleBurner(object):
                 # Get standardized RDKit mol
                 try:
                     rd_mol = Chem.MolFromSmiles(csmiles, sanitize=False)  # Important: Sanitize = False
-                    self._standardize_chemical(rd_mol)
+                    standardize_chemical(rd_mol)
                     rd_mol = Chem.AddHs(rd_mol)  # TODO: add option for that
                 except Exception as e:
                     raise ChemConversionError(e) from e
@@ -362,27 +288,31 @@ class RuleBurner(object):
                             worker=worker_fire, kwargs=kwargs,
                             timeout=self._fire_timeout
                             )
-                    smiles, inchis = self._handle_results(ans)
+                    rdmols = standardize_results(ans)
+                    inchikeys, inchis, smiles = handle_results(rdmols)
                     fire_timed_out = False
                     fire_error = None
                 except ChemConversionError as e:
-                    smiles = None
+                    inchikeys = None
                     inchis = None
+                    smiles = None
                     fire_timed_out = False
                     fire_error = str(e)
                     logging.warning(e)
                 except mp.TimeoutError as e:
                     fire_exec_time = None
-                    smiles = None
+                    inchikeys = None
                     inchis = None
+                    smiles = None
                     fire_timed_out = True
                     fire_error = str(e)
                     logging.error('TIMEOUT: cid={}, rid={}'.format(cid, rid))
                     logging.error('TIMEOUT: original error={}'.format(e))
                 except Exception as e:
                     fire_exec_time = None
-                    smiles = None
+                    inchikeys = None
                     inchis = None
+                    smiles = None
                     fire_timed_out = False
                     fire_error = str(e)
                     logging.warning(e)
@@ -399,8 +329,9 @@ class RuleBurner(object):
                         fire_timed_out=fire_timed_out,
                         fire_exec_time=fire_exec_time,
                         fire_error=fire_error,
-                        smiles_list=smiles,
-                        inchis_list=inchis
+                        inchikeys_list=inchikeys,
+                        inchis_list=inchis,
+                        smiles_list=smiles
                         )
                 self._json.append(json_str)
 
