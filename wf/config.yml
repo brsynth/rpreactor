@@ -9,9 +9,11 @@
 # FILTER_RULES:     list, path to a file (or "None") to be used for filtering
 #                   out specific from the final wish list of rules. If list is
 #                   empty no attempt will be made to flter out rules.
-JOB_DIR: 'job/201901'
+JOB_DIR: 'job/20190307'
 IN_RULES: 'data/mnx_20181203/rule/aroaam_nostereo_final/rules_rall.tsv'
-RADIUS_TO_KEEP: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+# RADIUS_TO_KEEP: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+RADIUS_TO_KEEP: [4, 8]
 MAX_CUTOFF: 99999
-MIN_CUTOFF: 1
+# MIN_CUTOFF: 1
+MIN_CUTOFF: 50
 FILTER_RULES: []

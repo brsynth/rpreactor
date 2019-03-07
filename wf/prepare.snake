@@ -2,7 +2,7 @@ r"""
 Prepare set of files.
 
 Example (to be excuted from project root folder):
-snakemake --directory . --snakefile bin/rule_fire/prepare.snake -p --configfile bin/rule_fire/config.yml > wf_prepare_mnx20181203.log 2>&1
+snakemake --directory . --snakefile bin/rule_fire/wf/prepare.snake -p --configfile bin/rule_fire/wf/config.yml > wf_prepare_mnx20190307.log 2>&1
 
 
 Thomas Duigou, INRA, 2018-2019
@@ -16,8 +16,6 @@ MAX_CUTOFF = config['MAX_CUTOFF']
 MIN_CUTOFF = config['MIN_CUTOFF']
 FILTER_RULES = config['FILTER_RULES'] if 'FILTER_RULES' in config else []
 
-# CLUSTER: prevent specific rules to be executed from cluster nodes
-localrules: all, select, split
 
 rule all:
     input:
