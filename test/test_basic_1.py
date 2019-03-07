@@ -7,8 +7,9 @@ from rdkit import Chem
 import pytest
 import multiprocessing
 
+
 from reactor.cli import RuleBurner, RuleConversionError, ChemConversionError
-from reactor.Utils import standardize_chemical, standardize_results, handle_results
+
 
 # Data for tests
 substate_smiles = '[H][O][C](=[O])[C]([H])([O][H])[C]([H])([H])[H]'
@@ -18,24 +19,15 @@ tuple_product_smiles = ('[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C](
 tuple_product_inchis = ('InChI=1S/C3H7O6P/c1-2(3(4)5)9-10(6,7)8/h2H,1H3,(H,4,5)(H2,6,7,8)', 'InChI=1S/C10H15N5O11P2/c11-10-13-7-4(8(18)14-10)12-2-15(7)9-6(17)5(16)3(25-9)1-24-28(22,23)26-27(19,20)21/h2-3,5-6,9,16-17H,1H2,(H,22,23)(H2,19,20,21)(H3,11,13,14,18)')
 
 
-def test_init():
-    # Empty is OK
-    rb = RuleBurner(rsmarts_list=[], csmiles_list=[])
-    rb.compute()
-
-
-def test_standardize_chemical():
-    rdmol = Chem.MolFromSmiles('[H][O][C](=[O])[C]([H])([O][H])[C]([H])([H])[H]')
-    # Simple standardization
-    rdmol_std_1 = standardize_chemical(rdmol, add_hs=False)
-    assert Chem.MolToSmiles(rdmol_std_1) == 'CC(O)C(=O)O'
-    rdmol_std_2 = standardize_chemical(rdmol, add_hs=True)
-    assert Chem.MolToSmiles(rdmol_std_2, allHsExplicit=True) == '[H][O][C](=[O])[C]([H])([O][H])[C]([H])([H])[H]'
-
-
 def dummy_worker(**kwargs):
     import time
     time.sleep(1)
+
+
+def test_init():
+    # Empty is OK
+    rb = RuleBurner(rsmarts_list=[], csmiles_list=[])  # Empty is OK
+    rb.compute()
 
 
 def test_run_with_timeout():
@@ -45,37 +37,9 @@ def test_run_with_timeout():
     rb._run_with_timeout(dummy_worker, None, timeout=2)
 
 
-def test_handle_result():
-    tuple_raw = (
-            Chem.MolFromSmiles('[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C]([H])([H])[H]'),
-            Chem.MolFromSmiles('[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]')
-            )
-    tuple_tuple_rdmol, tuple_tuple_failed = standardize_results(tuple_tuple_rdmol=(tuple_raw,), add_hs=True, rm_stereo=True)
-    inchikeys, inchis, smiles = handle_results(list_list_rdmol=tuple_tuple_rdmol)
-    # Check number products
-    assert len(inchikeys) == len(inchis) == len(smiles) == 1   # Only one set of result
-    assert len(inchikeys[0]) == len(inchis[0]) == len(smiles[0]) == 2  # 2 products
-    # Check Inchikeys
-    assert inchikeys[0][0] == 'CSZRNWHGZPKNKY-UHFFFAOYSA-N'
-    assert inchikeys[0][1] == 'QGWNDRXFNXRZMB-UHFFFAOYSA-N'
-    # Check Inchis
-    assert inchis[0][0] == 'InChI=1S/C3H7O6P/c1-2(3(4)5)9-10(6,7)8/h2H,1H3,(H,4,5)(H2,6,7,8)'
-    assert inchis[0][1] == 'InChI=1S/C10H15N5O11P2/c11-10-13-7-4(8(18)14-10)12-2-15(7)9-6(17)5(16)3(25-9)1-24-28(22,23)26-27(19,20)21/h2-3,5-6,9,16-17H,1H2,(H,22,23)(H2,19,20,21)(H3,11,13,14,18)'
-    # Check SMILES #1
-    assert smiles[0][0] == '[H]OC(=O)C([H])(OP(=O)(O[H])O[H])C([H])([H])[H]'
-    rdmol = Chem.MolFromSmiles(smiles[0][0])
-    rdmol = Chem.AddHs(rdmol)
-    assert Chem.MolToSmiles(rdmol, allHsExplicit=True) == '[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C]([H])([H])[H]'
-    # Check SMILES #2
-    assert smiles[0][1] == '[H]N=c1nc(O[H])c2nc([H])n(C3([H])OC([H])(C([H])([H])OP(=O)(O[H])OP(=O)(O[H])O[H])C([H])(O[H])C3([H])O[H])c2n1[H]'
-    rdmol = Chem.MolFromSmiles(smiles[0][1])
-    rdmol = Chem.AddHs(rdmol)
-    assert Chem.MolToSmiles(rdmol, allHsExplicit=True) == '[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]'
-
-
 def test_jsonify():
     rb = RuleBurner(rsmarts_list=[], csmiles_list=[])
-    assert rb._jsonify(rsmarts='', csmiles='', rid='RID', cid='CID').replace('\n', '') == """{ "rule_id": "RID", "substrate_id": "CID", "fire": true, "fire_timed_out": null, "fire_exec_time": null, "product_inchikeys": null, "product_inchis": null, "product_smiles": null}"""
+    assert rb._jsonify(rsmarts='', csmiles='', rid='RID', cid='CID').replace('\n', '') == """{ "rule_id": "RID", "substrate_id": "CID", "fire_timed_out": null, "fire_exec_time": null}"""
 
 
 def test_compute():

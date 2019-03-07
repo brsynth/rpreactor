@@ -15,5 +15,5 @@ IN_RULES: 'data/mnx_20181203/rule/aroaam_nostereo_final/rules_rall.tsv'
 RADIUS_TO_KEEP: [4, 8]
 MAX_CUTOFF: 99999
 # MIN_CUTOFF: 1
-MIN_CUTOFF: 50
+MIN_CUTOFF: 100
 FILTER_RULES: []

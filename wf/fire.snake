@@ -2,7 +2,7 @@ r"""
 Prepare set of files.
 
 Simple example (from project root folder):
-snakemake --directory . --snakefile bin/rule_fire/wf/fire.snake -p --jobs 6 --configfile bin/rule_fire/wf/config.yml > wf_fire_mnx20190307.log 2>&1
+snakemake --directory . --snakefile bin/rule_fire/wf/fire.snake -p --jobs 6 --configfile bin/rule_fire/wf/config.yml --keep-going > wf_fire_mnx20190307.log 2>&1
 
 Cluster example:
 screen

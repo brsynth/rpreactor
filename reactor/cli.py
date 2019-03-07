@@ -150,7 +150,8 @@ class RuleBurner(object):
     def _jsonify(self, rsmarts, csmiles, rid=None, cid=None,
                  has_match=None, match_timed_out=None,
                  match_exec_time=None, match_error=None,
-                 fire_timed_out=None, fire_exec_time=None, fire_error=None,
+                 fire_timed_out=None,
+                 fire_exec_time=None, fire_error=None,
                  inchikeys_list=None, inchis_list=None, smiles_list=None):
         """Return the results as a JSON string.
         
@@ -185,15 +186,11 @@ class RuleBurner(object):
             if match_error is not None:
                 data['match_error'] = match_error
         # Fire info
-        if (smiles_list is None) or (len(smiles_list) > 0):
-            data['fire'] = True
-        else:
-            data['fire'] = False
         data['fire_timed_out'] = fire_timed_out
         data['fire_exec_time'] = fire_exec_time
         if fire_error is not None:
             data['fire_error'] = fire_error
-        if (smiles_list is None) or (len(smiles_list) > 0):
+        if (inchikeys_list is not None) and (len(inchikeys_list) > 0):
             data['product_inchikeys'] = inchikeys_list
             data['product_inchis'] = inchis_list
             data['product_smiles'] = smiles_list
@@ -280,7 +277,7 @@ class RuleBurner(object):
                             worker=worker_fire, kwargs=kwargs,
                             timeout=self._fire_timeout
                             )
-                    rdmols, failed = standardize_results(ans, add_hs=False, rm_stereo=True)  # !!!! add_hs = False To be used only to fill the DB
+                    rdmols, failed = standardize_results(ans, add_hs=False, rm_stereo=True)  # !!!! add_hs=False To be used only to fill the DB
                     inchikeys, inchis, smiles = handle_results(rdmols)
                     fire_timed_out = False
                     fire_error = None
