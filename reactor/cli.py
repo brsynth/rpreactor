@@ -17,16 +17,12 @@ import multiprocessing as mp
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from rdkit import RDLogger
 
-from Core import RuleBurnerCore
-from Utils import standardize_chemical, standardize_results, handle_results, ChemConversionError
+from reactor.Core import RuleBurnerCore
+from reactor.Utils import standardize_chemical, standardize_results, handle_results, ChemConversionError
 
-class RuleBurnerError(Exception):
-    """Home made exception."""
-    pass
-    
-class RuleConversionError(RuleBurnerError):
+
+class RuleConversionError(Exception):
     """Raised when something went wrong during SMARTS conversion to RDKit rxn object."""
     
     def __init__(self, msg):
@@ -100,9 +96,6 @@ class RuleBurner(object):
         self._try_match = self._TRY_MATCH  # TODO: add option for that
         self._match_timeout = match_timeout
         self._fire_timeout = fire_timeout
-        
-        # RDKit logging Handling
-        self._rdkit_logger = RDLogger.logger()
         
         # Check for consistency between depictions and IDs
         try:
@@ -250,8 +243,7 @@ class RuleBurner(object):
                 # Get standardized RDKit mol
                 try:
                     rd_mol = Chem.MolFromSmiles(csmiles, sanitize=False)  # Important: Sanitize = False
-                    standardize_chemical(rd_mol)
-                    rd_mol = Chem.AddHs(rd_mol)  # TODO: add option for that
+                    rd_mol = standardize_chemical(rd_mol, add_hs=True, rm_stereo=True)  # TODO: Add option to deal with Hs and stereo
                 except Exception as e:
                     raise ChemConversionError(e) from e
                 # General args to used for both matching and firing
@@ -288,7 +280,7 @@ class RuleBurner(object):
                             worker=worker_fire, kwargs=kwargs,
                             timeout=self._fire_timeout
                             )
-                    rdmols, failed = standardize_results(ans)
+                    rdmols, failed = standardize_results(ans, add_hs=False, rm_stereo=True)  # !!!! add_hs = False To be used only to fill the DB
                     inchikeys, inchis, smiles = handle_results(rdmols)
                     fire_timed_out = False
                     fire_error = None

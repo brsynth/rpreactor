@@ -7,8 +7,8 @@ from rdkit import Chem
 import pytest
 import multiprocessing
 
-from rule_fire import RuleBurner, RuleConversionError, ChemConversionError
-from Utils import standardize_chemical, standardize_results, handle_results
+from reactor.cli import RuleBurner, RuleConversionError, ChemConversionError
+from reactor.Utils import standardize_chemical, standardize_results, handle_results
 
 # Data for tests
 substate_smiles = '[H][O][C](=[O])[C]([H])([O][H])[C]([H])([H])[H]'

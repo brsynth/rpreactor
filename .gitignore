@@ -1,4 +1,5 @@
 \.snakemake/
 \.DS_Store
+reactor.egg-info
 *.gz
 __pycache__
