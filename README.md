@@ -1,14 +1,14 @@
-# 
+#
 
 Thomas Duigou (thomas.duigou@inra.fr), INRA, 2018-2019
 
 ## Installation
 ```bash
-# Build folder tree
-mkdir -p bin data doc job wf
-
 # Download code
-git clone https://brsforge.micalis.fr/RP3/rule_fire.git bin/rule_fire
+git clone https://brsforge.micalis.fr/RP3/rule_fire.git rule_fire
+
+# Install a local package
+pip install -e .
 
 # Setting conda environment
 conda create --name pyrule python=3.6
