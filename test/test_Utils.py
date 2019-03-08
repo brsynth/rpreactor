@@ -42,7 +42,18 @@ class TestBasic2(object):
         wrong_mol = Chem.MolFromSmiles(wrong_smiles, sanitize=False)
         with pytest.raises(Exception):
             standardize_chemical(wrong_mol)
-
+            
+    
+    def test_standardize_results_1(self):
+        tuple_tuple_raw = ((
+                    Chem.MolFromSmiles('[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C]([H])([H])[H]'),
+                    Chem.MolFromSmiles('[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]')
+                ),(
+                    Chem.MolFromInchi('InChI=1S/C5H6N5O/c6-5-9-3-2(4(11)10-5)7-1-8-3/h1H,9H2,(H,7,8)(H2,6,10,11)')
+                ))
+        tuple_tuple_rdmol, tuple_index_failed = standardize_results(tuple_tuple_raw, add_hs=True, rm_stereo=True)
+        assert len(tuple_tuple_rdmol) == 1
+        assert tuple_index_failed == [1]
 
     def test_handle_result(self):
         tuple_raw = (
