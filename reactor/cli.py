@@ -24,7 +24,7 @@ from reactor.Utils import standardize_chemical, standardize_results, handle_resu
 
 class RuleConversionError(Exception):
     """Raised when something went wrong during SMARTS conversion to RDKit rxn object."""
-    
+
     def __init__(self, msg):
         self._msg = msg
 
@@ -67,36 +67,36 @@ def kill(pool):
 
 class RuleBurner(object):
     """Apply any number of rules on any number of compounds."""
-    
+
     def __init__(
             self, rsmarts_list, csmiles_list, rid_list=None,  cid_list=None,
             match_timeout=1, fire_timeout=1, ofile=None, compress=False):
         """Setting up everything needed for behavor decisions and firing rules.
-        
+
         :param  rsmarts_list:   list of reaction rule SMARTS
         :param  csmiles_list:   list of compound SMILES
         :param  rid_list:       list of reaction rule IDs
         :param  cid_list:       list of compound IDs
         :param  match_timeout:  int, timeout execution for compound pre-matching
-        :param  fire_timeout:   int, timeout execution for rule firing 
+        :param  fire_timeout:   int, timeout execution for rule firing
         :param  ofile:          str, Output file to store results
         """
-        
+
         # Internal settigns
         self._INDENT_JSON = True
         self._TRY_MATCH = False
-        
+
         # Input
         self._rsmarts_list = rsmarts_list
         self._rid_list = rid_list
         self._csmiles_list = csmiles_list
         self._cid_list = cid_list
-    
+
         # Settings
         self._try_match = self._TRY_MATCH  # TODO: add option for that
         self._match_timeout = match_timeout
         self._fire_timeout = fire_timeout
-        
+
         # Check for consistency between depictions and IDs
         try:
             if self._rid_list:
@@ -109,7 +109,7 @@ class RuleBurner(object):
                 assert len(self._csmiles_list) == len(self._cid_list)
         except AssertionError as e:
             logging.warning("ID and depiction compounds lists have different size, rule IDs will be ignored")
-        
+
         # Output
         self._json = list()
         self._compress = compress
@@ -119,17 +119,17 @@ class RuleBurner(object):
             pdir = os.path.abspath(os.path.dirname(ofile))
             os.makedirs(pdir, exist_ok=True)
             self._ofile = os.path.abspath(ofile)
-        
+
         # A place to swim
         self._pool = None
 
     def _run_with_timeout(self, worker, kwargs, timeout=5):
         """Generic wrapper making use of multiprocessing to garantee effective timeout.
-        
+
         :param  worker:     function to be called
         :param  kwargs:     dictionnary of args to be passed to the called function
         :param  timeout:    int, timeout
-        :returns            depends of the worker function 
+        :returns            depends of the worker function
         """
         if self._pool is None:
             self._pool = mp.Pool(processes=1)
@@ -154,7 +154,7 @@ class RuleBurner(object):
                  fire_exec_time=None, fire_error=None,
                  inchikeys_list=None, inchis_list=None, smiles_list=None):
         """Return the results as a JSON string.
-        
+
         :param      rsmarts:            str, reaction rule string depiction
         :param      csmiles:            str, substrate string depiction
         :param      rid:                str, reaction rule ID
@@ -344,18 +344,18 @@ def __cli():
         r.write_json()
 
     def infile_mode(args):
-        """Execution mode to be used when rules and chemicals are provided 
+        """Execution mode to be used when rules and chemicals are provided
         in CSV files.
         """
-        
+
         rsmarts_list = list()
         rids_list = list()
 
         rsmiles_list = list()
         cids_list = list()
-        
+
         import csv
-        
+
         with open(args.rfile, 'r') as ifh:
             reader = csv.DictReader(ifh, delimiter='\t')
             for row in reader:
@@ -367,7 +367,7 @@ def __cli():
             for row in reader:
                 rsmiles_list.append(row['Chemical_SMILES'].strip())
                 cids_list.append(row['Chemical_ID'].strip())
-                
+
         r = RuleBurner(
                 rsmarts_list=rsmarts_list, csmiles_list=rsmiles_list,
                 rid_list=rids_list, cid_list=cids_list,
@@ -390,7 +390,7 @@ def __cli():
     parser_inline.add_argument('--csmiles', help='Chemical SMILES depiction', required=True)
     parser_inline.add_argument('--rid', help='Reaction rule ID, optional')
     parser_inline.add_argument('--cid', help='Chemical ID, optional')
-    
+
     parser_file = subparsers.add_parser('infile', help='Get inputs from files')
     parser_file.set_defaults(func=infile_mode)
     parser_file.add_argument(
@@ -420,7 +420,7 @@ def __cli():
             datefmt='%d/%m/%Y %H:%M:%S',
             format='%(asctime)s -- %(levelname)s -- %(message)s'
             )
-    
+
     # Execute right mode
     args = parser.parse_args()
     args.func(args)

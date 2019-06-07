@@ -7,8 +7,10 @@ import copy
 import rdkit
 import logging
 
-from rdkit import Chem
+# from rdkit import Chem
+from rdkit.Chem import MolToInchiKey
 from rdkit import RDLogger
+from chemtools.Standardizer import Standardizer
 
 
 RD_LOGGER = RDLogger.logger()
@@ -17,7 +19,7 @@ RD_LOGGER.setLevel(RDLogger.CRITICAL)  # Silent most of RDKit complains
 
 class ChemConversionError(Exception):
     """Raised when something went wrong during chemical conversion to RDKit mol object."""
-    
+
     def __init__(self, msg):
         self._msg = msg
 
@@ -27,16 +29,16 @@ class ChemConversionError(Exception):
 
 def wild_stereo_removal(rdmol):
     """Wild stereo removal using back and forth Inchi depiction.
-    
+
     :param      rdmol:      RDKit mol
-    :returns    rdmol_new:  newly generated RDKit mol 
+    :returns    rdmol_new:  newly generated RDKit mol
     """
     tmp_rdmol = copy.deepcopy(rdmol)
     Chem.RemoveStereochemistry(tmp_rdmol)
     return Chem.MolFromInchi(Chem.MolToInchi(tmp_rdmol))
 
 
-def standardize_chemical(rdmol, add_hs=True, rm_stereo=True):
+def standardize_chemical_archive(rdmol, add_hs=True, rm_stereo=True):
     """Standardize a chemical using RDKit sanitize method.
 
     :param      rdmol:      RDKit mol object
@@ -57,10 +59,52 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True):
         logging.warning(e)
         raise e
 
+def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy = False):
+    """Standardize a chemical using RDKit sanitize method.
+
+    :param      rdmol:      RDKit mol object
+    :param      add_hs:     append Hs, bool (default: True)
+    :param      rm_stereo:  remove stereo, bool (default: True)
+    :returns    rdmol:      RDKit mol object
+    """
+    if not rm_stereo:
+        logging.warning("Stereo not handled at the time being.")
+        raise ChemConversionError
+    simple_standardisation = {
+        'OP_REMOVE_ISOTOPE': False,
+        'OP_NEUTRALISE_CHARGE': False,
+        'OP_REMOVE_STEREO': False,
+        'OP_COMMUTE_INCHI': True,
+        'OP_KEEP_BIGGEST': False,
+        'OP_ADD_HYDROGEN': add_hs,
+        'OP_KEKULIZE': False,
+        'OP_NEUTRALISE_CHARGE_LATE': True
+    }
+    heavy_standardisation = {
+        'OP_REMOVE_ISOTOPE': True,
+        'OP_NEUTRALISE_CHARGE': True,
+        'OP_REMOVE_STEREO': True,
+        'OP_COMMUTE_INCHI': True,
+        'OP_KEEP_BIGGEST': True,
+        'OP_ADD_HYDROGEN': add_hs,
+        'OP_KEKULIZE': False,
+        'OP_NEUTRALISE_CHARGE_LATE': True
+    }
+    
+    try:
+        if heavy:
+            rdmol = Standardizer(sequence_fun='sequence_tunable', params=heavy_standardisation).compute(rdmol)
+            logging.warning("Performing heavy standardisation for compound {}".format(MolToInchiKey(rdmol)))
+        else:
+            rdmol = Standardizer(sequence_fun='sequence_tunable', params=simple_standardisation).compute(rdmol)
+        return(rdmol)
+    except Exception as e:
+        logging.warning(e)
+        raise e
 
 def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
     """Perform sanitization and remove duplicates from reaction rule results.
-    
+
     :param      tuple_tuple_rdmol:      tuple of tuple of RDKit Mol
     :param      add_hs:                 append Hs, bool (default: True)
     :param      rm_stereo:              remove stereo, bool (default: True)
@@ -72,7 +116,7 @@ def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
     list_idx_tuple_failed = list()
 
     for idx_tuple, tuple_rdmol in enumerate(tuple_tuple_rdmol):
-        try: 
+        try:
             list_std = list()
             list_inchikeys = list()
             # Standardize
@@ -108,18 +152,18 @@ def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
 
 def handle_results(list_list_rdmol):
     """Generate InchiKey, Inchi and SMILES from results.
-    
+
     :param      list_list_rdmol:        list of list of RDKit Mol
     :returns    list_list_inchikeys:    list of list of InchiKeys
     :returns    list_list_inchis:       list of list of Inchis
     :returns    list_list_smiles:       list of list of SMILES
-    """ 
+    """
     list_list_inchikeys = list()
     list_list_inchis = list()
     list_list_smiles = list()
 
     for list_rdmol in list_list_rdmol:
-        try: 
+        try:
             list_inchikeys = list()
             list_inchis = list()
             list_smiles = list()
