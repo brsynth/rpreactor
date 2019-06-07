@@ -7,7 +7,7 @@ import copy
 import rdkit
 import logging
 
-# from rdkit import Chem
+from rdkit import Chem
 from rdkit.Chem import MolToInchiKey
 from rdkit import RDLogger
 from chemtools.Standardizer import Standardizer
@@ -90,7 +90,7 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy = False):
         'OP_KEKULIZE': False,
         'OP_NEUTRALISE_CHARGE_LATE': True
     }
-    
+
     try:
         if heavy:
             rdmol = Standardizer(sequence_fun='sequence_tunable', params=heavy_standardisation).compute(rdmol)
