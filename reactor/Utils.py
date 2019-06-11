@@ -69,7 +69,7 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy = False):
     """
     if not rm_stereo:
         logging.warning("Stereo not handled at the time being.")
-        raise ChemConversionError
+        raise ChemConversionError("Stereo not handled at the time being.")
     simple_standardisation = {
         'OP_REMOVE_ISOTOPE': False,
         'OP_NEUTRALISE_CHARGE': False,
@@ -94,7 +94,7 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy = False):
     try:
         if heavy:
             rdmol = Standardizer(sequence_fun='sequence_tunable', params=heavy_standardisation).compute(rdmol)
-            logging.warning("Performing heavy standardisation for compound {}".format(MolToInchiKey(rdmol)))
+            logging.debug("Performing heavy standardisation for compound {}".format(MolToInchiKey(rdmol)))
         else:
             rdmol = Standardizer(sequence_fun='sequence_tunable', params=simple_standardisation).compute(rdmol)
         return(rdmol)
