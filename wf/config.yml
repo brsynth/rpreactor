@@ -3,17 +3,24 @@
 # IN_RULES:         str, file containing rules
 # RADIUS_TO_KEEP:   str, radius to consider. If several, use spaces as value
 #                   separator.
-# MAX_CUTOFF:       int, maximal substrate occurence. Substrate appearing more
+# MAX_CUTOFF:       int, maximal substrate occurrence. Substrate appearing more
 #                   than MAX_CUTOFF will be removed from the wish list 
-# MIN_CUTOFF:       int, minimal substrate occurence.
+# MIN_CUTOFF:       int, minimal substrate occurrence.
 # FILTER_RULES:     list, path to a file (or "None") to be used for filtering
 #                   out specific from the final wish list of rules. If list is
 #                   empty no attempt will be made to flter out rules.
-JOB_DIR: 'job/20190307'
-IN_RULES: 'data/mnx_20181203/rule/aroaam_nostereo_final/rules_rall.tsv'
-# RADIUS_TO_KEEP: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+JOB_DIR: 'job/20190730'
+IN_RULES: '/Users/tduigou/projects/2018.09__RP3/data/rules/mnx_20190524/nostereo_nohs/rule/aroaam_final/rules_rall.tsv'
+IN_CHEMICALS: '/Users/tduigou/projects/2018.09__RP3/data/rules/mnx_20190524/nostereo_nohs/inchi/compounds.tsv'
+#RADIUS_TO_KEEP: [1, 2, 3, 4, 5, 6, 7, 8]
 RADIUS_TO_KEEP: [4, 8]
-MAX_CUTOFF: 99999
-# MIN_CUTOFF: 1
-MIN_CUTOFF: 100
+
+# Chemical filter: min / max number of occurrences in left side of rules
+MIN_OCC_CUTOFF: 1
+MAX_OCC_CUTOFF: 99999
+
+# Chemical filter: min / max molecular weight
+MIN_MW_CUTOFF: 5
+MAX_MW_CUTOFF: 1000
+
 FILTER_RULES: []
