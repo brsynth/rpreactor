@@ -8,6 +8,8 @@ Thomas Duigou (thomas.duigou@inra.fr), INRA, 2018
 conda create --name pyrule python=3.6
 source activate pyrule
 conda install --channel rdkit rdkit=2019.03.1.0
+
+# Only needed for workflows
 conda install --channel bioconda --channel conda-forge snakemake=5.4.0
 ```
 
