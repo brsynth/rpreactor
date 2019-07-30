@@ -75,7 +75,7 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy=False):
     simple_standardisation = {
         'OP_REMOVE_ISOTOPE': False,
         'OP_NEUTRALISE_CHARGE': False,
-        'OP_REMOVE_STEREO': False,
+        'OP_REMOVE_STEREO': rm_stereo,
         'OP_COMMUTE_INCHI': True,
         'OP_KEEP_BIGGEST': False,
         'OP_ADD_HYDROGEN': add_hs,
@@ -85,7 +85,7 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy=False):
     heavy_standardisation = {
         'OP_REMOVE_ISOTOPE': True,
         'OP_NEUTRALISE_CHARGE': True,
-        'OP_REMOVE_STEREO': True,
+        'OP_REMOVE_STEREO': rm_stereo,
         'OP_COMMUTE_INCHI': True,
         'OP_KEEP_BIGGEST': True,
         'OP_ADD_HYDROGEN': add_hs,
