@@ -59,12 +59,14 @@ def standardize_chemical_archive(rdmol, add_hs=True, rm_stereo=True):
         logging.warning(e)
         raise e
 
-def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy = False):
+
+def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy=False):
     """Standardize a chemical using RDKit sanitize method.
 
     :param      rdmol:      RDKit mol object
     :param      add_hs:     append Hs, bool (default: True)
     :param      rm_stereo:  remove stereo, bool (default: True)
+    :param      heavy:      perform custom in depth standardization (default: False)
     :returns    rdmol:      RDKit mol object
     """
     if not rm_stereo:
@@ -97,10 +99,11 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy = False):
             logging.debug("Performing heavy standardisation for compound {}".format(MolToInchiKey(rdmol)))
         else:
             rdmol = Standardizer(sequence_fun='sequence_tunable', params=simple_standardisation).compute(rdmol)
-        return(rdmol)
+        return rdmol
     except Exception as e:
         logging.warning(e)
         raise e
+
 
 def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
     """Perform sanitization and remove duplicates from reaction rule results.
