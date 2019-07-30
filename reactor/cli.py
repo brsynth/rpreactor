@@ -9,7 +9,6 @@ import sys
 import gzip
 import json
 import time
-import rdkit
 import signal
 import logging
 import argparse
@@ -69,27 +68,27 @@ class RuleBurner(object):
     """Apply any number of rules on any number of compounds."""
 
     def __init__(
-            self, rsmarts_list, csmiles_list, rid_list=None,  cid_list=None,
+            self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None,
             match_timeout=1, fire_timeout=1, ofile=None, compress=False):
         """Setting up everything needed for behavor decisions and firing rules.
 
         :param  rsmarts_list:   list of reaction rule SMARTS
-        :param  csmiles_list:   list of compound SMILES
+        :param  inchi_list:     list of inchis
         :param  rid_list:       list of reaction rule IDs
-        :param  cid_list:       list of compound IDs
+        :param  cid_list:       list of chemical IDs
         :param  match_timeout:  int, timeout execution for compound pre-matching
         :param  fire_timeout:   int, timeout execution for rule firing
         :param  ofile:          str, Output file to store results
         """
 
-        # Internal settigns
+        # Internal settings
         self._INDENT_JSON = True
         self._TRY_MATCH = False
 
         # Input
         self._rsmarts_list = rsmarts_list
         self._rid_list = rid_list
-        self._csmiles_list = csmiles_list
+        self._inchi_list = inchi_list
         self._cid_list = cid_list
 
         # Settings
@@ -106,7 +105,7 @@ class RuleBurner(object):
 
         try:
             if self._cid_list:
-                assert len(self._csmiles_list) == len(self._cid_list)
+                assert len(self._inchi_list) == len(self._cid_list)
         except AssertionError as e:
             logging.warning("ID and depiction compounds lists have different size, rule IDs will be ignored")
 
@@ -147,7 +146,7 @@ class RuleBurner(object):
             raise e
         return ans, exec_time
 
-    def _jsonify(self, rsmarts, csmiles, rid=None, cid=None,
+    def _jsonify(self, rsmarts, inchi, rid=None, cid=None,
                  has_match=None, match_timed_out=None,
                  match_exec_time=None, match_error=None,
                  fire_timed_out=None,
@@ -156,7 +155,7 @@ class RuleBurner(object):
         """Return the results as a JSON string.
 
         :param      rsmarts:            str, reaction rule string depiction
-        :param      csmiles:            str, substrate string depiction
+        :param      inchi:              str, substrate string depiction
         :param      rid:                str, reaction rule ID
         :param      cid:                str, substrate ID
         :param      has_match:          bool or None, True if there is match
@@ -176,7 +175,7 @@ class RuleBurner(object):
             'rule_id': rid,
             # 'rule_smarts': rsmarts,
             'substrate_id': cid,
-            # 'substrate_smiles': csmiles,
+            # 'substrate_inchi': inchi,
         }
         # Match info
         if self._try_match:
@@ -231,7 +230,7 @@ class RuleBurner(object):
             except Exception as e:
                 raise RuleConversionError(e) from e
 
-            for cindex, csmiles in enumerate(self._csmiles_list):
+            for cindex, inchi in enumerate(self._inchi_list):
                 # Extract corresponding substrate ID if any
                 if self._cid_list:
                     cid = self._cid_list[cindex]
@@ -239,8 +238,9 @@ class RuleBurner(object):
                     cid = None
                 # Get standardized RDKit mol
                 try:
-                    rd_mol = Chem.MolFromSmiles(csmiles, sanitize=False)  # Important: Sanitize = False
-                    rd_mol = standardize_chemical(rd_mol, add_hs=True, rm_stereo=True)  # TODO: Add option to deal with Hs and stereo
+                    # rd_mol = Chem.MolFromSmiles(csmiles, sanitize=False)  # Important: Sanitize = False
+                    rd_mol = Chem.MolFromInchi(inchi, sanitize=False)  # Important: Sanitize = False
+                    rd_mol = standardize_chemical(rd_mol, add_hs=False, rm_stereo=True, heavy=True)
                 except Exception as e:
                     raise ChemConversionError(e) from e
                 # General args to used for both matching and firing
@@ -277,7 +277,7 @@ class RuleBurner(object):
                             worker=worker_fire, kwargs=kwargs,
                             timeout=self._fire_timeout
                             )
-                    rdmols, failed = standardize_results(ans, add_hs=False, rm_stereo=True)  # !!!! add_hs=False To be used only to fill the DB
+                    rdmols, failed = standardize_results(ans, add_hs=False, rm_stereo=True)
                     inchikeys, inchis, smiles = handle_results(rdmols)
                     fire_timed_out = False
                     fire_error = None
@@ -308,7 +308,7 @@ class RuleBurner(object):
                 # JSONify and store
                 json_str = self._jsonify(
                         rsmarts=rsmarts,
-                        csmiles=csmiles,
+                        inchi=inchi,
                         rid=rid,
                         cid=cid,
                         has_match=has_match,
@@ -332,10 +332,10 @@ def __cli():
 
     def inline_mode(args):
         """Execution mode to be used when a single rule and a single chemical
-        are porvided through CLI.
+        are provided through CLI.
         """
         r = RuleBurner(
-                rsmarts_list=[args.rsmarts], csmiles_list=[args.csmiles],
+                rsmarts_list=[args.rsmarts], inchi_list=[args.inchi],
                 rid_list=[args.rid], cid_list=[args.cid],
                 match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
                 ofile=args.ofile, compress=args.compress
@@ -351,7 +351,7 @@ def __cli():
         rsmarts_list = list()
         rids_list = list()
 
-        rsmiles_list = list()
+        inchi_list = list()
         cids_list = list()
 
         import csv
@@ -359,17 +359,17 @@ def __cli():
         with open(args.rfile, 'r') as ifh:
             reader = csv.DictReader(ifh, delimiter='\t')
             for row in reader:
-                rsmarts_list.append(row['Rule_SMARTS'].strip())
-                rids_list.append(row['Rule_ID'].strip())
+                rsmarts_list.append(row['rule_smarts'].strip())
+                rids_list.append(row['rule_id'].strip())
 
         with open(args.cfile, 'r') as ifh:
             reader = csv.DictReader(ifh, delimiter='\t')
             for row in reader:
-                rsmiles_list.append(row['Chemical_SMILES'].strip())
-                cids_list.append(row['Chemical_ID'].strip())
+                inchi_list.append(row['inchi'].strip())
+                cids_list.append(row['chem_id'].strip())
 
         r = RuleBurner(
-                rsmarts_list=rsmarts_list, csmiles_list=rsmiles_list,
+                rsmarts_list=rsmarts_list, inchi_list=inchi_list,
                 rid_list=rids_list, cid_list=cids_list,
                 match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
                 ofile=args.ofile, compress=args.compress
@@ -387,7 +387,8 @@ def __cli():
     parser_inline = subparsers.add_parser('inline', help='Get inputs from command line')
     parser_inline.set_defaults(func=inline_mode)
     parser_inline.add_argument('--rsmarts', help='Reaction rule SMARTS', required=True)
-    parser_inline.add_argument('--csmiles', help='Chemical SMILES depiction', required=True)
+    # parser_inline.add_argument('--csmiles', help='Chemical SMILES depiction', required=True)
+    parser_inline.add_argument('--inchi', help='Chemical inchi depiction', required=True)
     parser_inline.add_argument('--rid', help='Reaction rule ID, optional')
     parser_inline.add_argument('--cid', help='Chemical ID, optional')
 
@@ -398,8 +399,8 @@ def __cli():
                     'Reaction rule file.',
                     'Tab separated columns.',
                     'One reaction rule per line.',
-                    'Mandatory column: Rule_SMARTS.',
-                    'Optional column: Rule_ID.',
+                    'Mandatory column: rule_smarts.',
+                    'Optional column: rule_id.',
                     'Other columns will be ignored.'
                     ])
             )
@@ -408,8 +409,8 @@ def __cli():
                     'Chemical file.',
                     'Tab separated columns.',
                     'One chemical per line.',
-                    'Mandatory column: Chemical_SMILES.',
-                    'Optional column: Chemical_ID.',
+                    'Mandatory column: inchi.',
+                    'Optional column: chem_id.',
                     'Other columns will be ignored.'
                     ])
             )
@@ -424,6 +425,7 @@ def __cli():
     # Execute right mode
     args = parser.parse_args()
     args.func(args)
+
 
 if __name__ == "__main__":
     __cli()

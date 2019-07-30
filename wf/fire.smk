@@ -45,7 +45,7 @@ rule fire:
         '{job_dir}/logs/fire_{inchikey}_r{radius}.log'
     shell:
         """
-        python bin/rule_fire/reactor/cli.py \
+        python reactor/cli.py \
             --ofile {output.res_file} \
             --compress \
             infile --rfile {input.rule_file} --cfile {input.chem_file} \
