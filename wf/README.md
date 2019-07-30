@@ -7,7 +7,7 @@ Thomas Duigou (thomas.duigou@inra.fr), INRA, 2018
 # Build conda env
 conda create --name pyrule python=3.6
 source activate pyrule
-conda install --channel rdkit rdkit=2018.09.1.0
+conda install --channel rdkit rdkit=2019.03.1.0
 conda install --channel bioconda --channel conda-forge snakemake=5.4.0
 ```
 
