@@ -22,7 +22,8 @@ rule all:
     input:
         '{job_dir}/rules'.format(job_dir=JOB_DIR),
         '{job_dir}/stats'.format(job_dir=JOB_DIR),
-        '{job_dir}/chemicals'.format(job_dir=JOB_DIR)
+        '{job_dir}/chemicals'.format(job_dir=JOB_DIR),
+        '{job_dir}/rules/rall.tsv'.format(job_dir=JOB_DIR)
         
 
 rule select_rules:
@@ -205,13 +206,13 @@ rule select_chemicals:
                         })
 
 
-rule split:
+rule split_chemicals:
     input:
         chem_list = '{job_dir}/chem_wish_list.tsv'
     output:
         outdir = directory('{job_dir}/chemicals')
     params:
-        debug = True
+        debug = False
     run:
         import os
         import csv
@@ -234,3 +235,36 @@ rule split:
                     writer.writerow(row)
                     if params.debug and cnt > 20:
                         break
+
+# rule merge_rules:
+#     input:
+#         '{job_dir}/rules'
+#     output:
+#         '{job_dir}/rules/rall.tsv'
+
+
+# Merge all diameters together
+rule merge_dataset:
+    input:
+        '{job_dir}/rules'
+        # expand("job/{{timestamp}}/rule/aroaam_valid_id_score_annot/rules_r{radius}.tsv",
+        #         radius=RADIUS)
+    output:
+        '{job_dir}/rules/rall.tsv'
+    params:
+        has_header = True
+    run:
+        import os
+        import glob
+        header_done = False
+        targets = glob.glob(os.path.join(input[0], 'r[0-9][0-9].tsv'))
+        with open(output[0], 'w') as ofh:
+            for ifile in targets:
+                with open(ifile, 'r') as ifh:
+                    if params.has_header:
+                        firstline = ifh.readline()
+                        if not header_done:
+                            ofh.write(firstline)
+                            header_done = True
+                    for line in ifh:
+                        ofh.write(line)
