@@ -10,10 +10,9 @@
 #                   out specific from the final wish list of rules. If list is
 #                   empty no attempt will be made to flter out rules.
 JOB_DIR: 'job/20190730'
-IN_RULES: '/Users/tduigou/projects/2018.09__RP3/data/rules/mnx_20190524/nostereo_nohs/rule/aroaam_final/rules_rall.tsv'
-IN_CHEMICALS: '/Users/tduigou/projects/2018.09__RP3/data/rules/mnx_20190524/nostereo_nohs/inchi/compounds.tsv'
-#RADIUS_TO_KEEP: [1, 2, 3, 4, 5, 6, 7, 8]
-RADIUS_TO_KEEP: [4, 8]
+IN_RULES: 'data/rules/mnx_20190524/nostereo_nohs/rule/aroaam_final/rules_rall.tsv'
+IN_CHEMICALS: 'data/rules/mnx_20190524/nostereo_nohs/inchi/compounds.tsv'
+RADIUS_TO_KEEP: [1, 2, 3, 4, 5, 6, 7, 8]
 
 # Chemical filter: min / max number of occurrences in left side of rules
 MIN_OCC_CUTOFF: 1
