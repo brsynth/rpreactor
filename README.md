@@ -4,18 +4,19 @@ Thomas Duigou (thomas.duigou@inra.fr), INRA, 2018-2019
 
 ## Installation
 ```bash
-# Download code
-git clone https://brsforge.micalis.fr/RP3/rule_fire.git rule_fire
-
-# Install a local package
-pip install -e .
-
 # Setting conda environment
-conda create --name pyrule python=3.6
-source activate pyrule
+conda create --name myenv python=3.6
+source activate myenv
 conda install --channel rdkit rdkit=2018.09.1.0
 conda install --channel bioconda --channel conda-forge snakemake=5.4.0
 conda install --channel conda-forge pytest
+
+# Install as a local package
+source activate myenv
+pip install -e .
+
+# Test
+pytest -v
 ```
 
 ## Usage
