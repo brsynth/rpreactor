@@ -4,12 +4,15 @@ Thomas Duigou (thomas.duigou@inra.fr), INRA, 2018-2019
 
 ## Installation
 ```bash
-# Setting conda environment
+# Setting up the conda environment
 conda create --name myenv python=3.6
 source activate myenv
 conda install --channel rdkit rdkit=2018.09.1.0
 conda install --channel bioconda --channel conda-forge snakemake=5.4.0
 conda install --channel conda-forge pytest
+
+# Install dependancies
+# => Install first the chemtools / chem-tools code
 
 # Install as a local package
 source activate myenv
