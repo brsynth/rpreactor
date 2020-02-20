@@ -60,7 +60,7 @@ def standardize_chemical_archive(rdmol, add_hs=True, rm_stereo=True):
         raise e
 
 
-def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy=False):
+def standardize_chemical(rdmol, with_hs=True, with_stereo=False, heavy=False):
     """Standardize a chemical using RDKit sanitize method.
 
     :param      rdmol:      RDKit mol object
@@ -75,20 +75,20 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy=False):
     simple_standardisation = {
         'OP_REMOVE_ISOTOPE': False,
         'OP_NEUTRALISE_CHARGE': False,
-        'OP_REMOVE_STEREO': rm_stereo,
+        'OP_REMOVE_STEREO': not with_stereo,
         'OP_COMMUTE_INCHI': True,
         'OP_KEEP_BIGGEST': False,
-        'OP_ADD_HYDROGEN': add_hs,
+        'OP_ADD_HYDROGEN': with_hs,
         'OP_KEKULIZE': False,
         'OP_NEUTRALISE_CHARGE_LATE': True
     }
     heavy_standardisation = {
         'OP_REMOVE_ISOTOPE': True,
         'OP_NEUTRALISE_CHARGE': True,
-        'OP_REMOVE_STEREO': rm_stereo,
+        'OP_REMOVE_STEREO': not with_stereo,
         'OP_COMMUTE_INCHI': True,
         'OP_KEEP_BIGGEST': True,
-        'OP_ADD_HYDROGEN': add_hs,
+        'OP_ADD_HYDROGEN': with_hs,
         'OP_KEKULIZE': False,
         'OP_NEUTRALISE_CHARGE_LATE': True
     }
@@ -105,7 +105,7 @@ def standardize_chemical(rdmol, add_hs=True, rm_stereo=True, heavy=False):
         raise e
 
 
-def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
+def standardize_results(tuple_tuple_rdmol, with_hs=True, with_stereo=True):
     """Perform sanitization and remove duplicates from reaction rule results.
 
     :param      tuple_tuple_rdmol:      tuple of tuple of RDKit Mol
@@ -125,7 +125,7 @@ def standardize_results(tuple_tuple_rdmol, add_hs=True, rm_stereo=True):
             # Standardize
             for rdmol in tuple_rdmol:
                 for rd_frag in Chem.GetMolFrags(rdmol, asMols=True, sanitizeFrags=False):
-                    list_std.append(standardize_chemical(rd_frag, add_hs=add_hs, rm_stereo=rm_stereo))
+                    list_std.append(standardize_chemical(rd_frag, with_hs=with_hs, with_stereo=with_stereo))
             # Get Inchikeys
             for rdmol in list_std:
                 inchikey = Chem.MolToInchiKey(rdmol)
