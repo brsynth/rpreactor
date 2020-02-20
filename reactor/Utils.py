@@ -69,9 +69,9 @@ def standardize_chemical(rdmol, with_hs=True, with_stereo=False, heavy=False):
     :param      heavy:      perform custom in depth standardization (default: False)
     :returns    rdmol:      RDKit mol object
     """
-    # if not rm_stereo:
-    #     logging.warning("Stereo not handled at the time being.")
-    #     raise ChemConversionError("Stereo not handled at the time being.")
+    if with_stereo:
+        logging.critical("Stereo is not handled at the time being.")
+        raise ChemConversionError("Stereo is not handled at the time being.")
     simple_standardisation = {
         'OP_REMOVE_ISOTOPE': False,
         'OP_NEUTRALISE_CHARGE': False,
