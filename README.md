@@ -12,10 +12,9 @@ conda install --channel bioconda --channel conda-forge snakemake=5.4.0
 conda install --channel conda-forge pytest
 
 # Install dependancies
-# => Install first the chemtools / chem-tools code
+# => Install first the chemtools code
 
 # Install as a local package
-source activate myenv
 pip install -e .
 
 # Test
