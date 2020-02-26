@@ -353,7 +353,8 @@ def __cli():
         r.write_json()
 
     def infile_mode(args):
-        """Execution mode to be used when rules and chemicals are provided
+        """
+        Execution mode to be used when rules and chemicals are provided
         in CSV files.
         """
 
@@ -389,12 +390,13 @@ def __cli():
 
     parser = argparse.ArgumentParser(description=help)
     parser.add_argument('--match_timeout', help='Rule matching timeout. Default: 1.', default=1, type=int)
-    parser.add_argument('--fire_timeout', help='Rule furing timeout. Default: 1.', default=1, type=int)
+    parser.add_argument('--fire_timeout', help='Rule firing timeout. Default: 1.', default=1, type=int)
     parser.add_argument('--ofile', help='Output file to store results. Default to STDOUT if none provided')
     parser.add_argument('--compress', action='store_true', help='Enable gzip compression (only when output to file).')
     parser.add_argument('--with_hs', help='Enable explicit Hs when sanitizing chemicals. Default to False.',
                         default=False, type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--with_stereo', help='Keep stereochemistry (if any) when sanitizing chemicals. Default to False.',
+    parser.add_argument('--with_stereo', help='Keep stereochemistry (if any) when sanitizing chemicals. Default to '
+                                              'False.',
                         default=False, type=lambda x: (str(x).lower() == 'true'))
 
     subparsers = parser.add_subparsers(help='Input mode')
