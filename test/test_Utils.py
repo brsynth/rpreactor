@@ -11,9 +11,9 @@ class TestBasic2(object):
 
     def test_standardize_chemical_1(self):
         rdmol = Chem.MolFromSmiles('[H][O][C](=[O])[C]([H])([O][H])[C]([H])([H])[H]')
-        rdmol_std_1 = standardize_chemical(rdmol, add_hs=False)
+        rdmol_std_1 = standardize_chemical(rdmol, with_hs=False)
         assert Chem.MolToSmiles(rdmol_std_1) == 'CC(O)C(=O)O'
-        rdmol_std_2 = standardize_chemical(rdmol, add_hs=True)
+        rdmol_std_2 = standardize_chemical(rdmol, with_hs=True)
         assert Chem.MolToSmiles(rdmol_std_2, allHsExplicit=True) == '[H][O][C](=[O])[C]([H])([O][H])[C]([H])([H])[H]'
 
     def test_standardize_chemical_2(self):
@@ -21,16 +21,16 @@ class TestBasic2(object):
         violacein_smiles = 'OC1=NC(=C\\C1=C1/C(O)=NC2=CC=CC=C12)C1=CNC2=C1C=C(O)C=C2'
         violacein_mol = Chem.MolFromSmiles(violacein_smiles, sanitize=False)
         # Test simplest case
-        std_mol_1 = standardize_chemical(violacein_mol, add_hs=False, rm_stereo=False)
+        std_mol_1 = standardize_chemical(violacein_mol, with_hs=False, with_stereo=True)
         assert Chem.MolToSmiles(std_mol_1) == 'OC1=NC(c2c[nH]c3ccc(O)cc23)=C/C1=C1\\C(O)=Nc2ccccc21'
         # Test adding Hs
-        std_mol_2 = standardize_chemical(violacein_mol, add_hs=True, rm_stereo=False)
+        std_mol_2 = standardize_chemical(violacein_mol, with_hs=True, with_stereo=True)
         assert Chem.MolToSmiles(std_mol_2) == '[H]OC1=NC(c2c([H])n([H])c3c([H])c([H])c(O[H])c([H])c23)=C([H])/C1=C1\\C(O[H])=Nc2c([H])c([H])c([H])c([H])c21'
         # Test removing stereo
-        std_mol_3 = standardize_chemical(violacein_mol, add_hs=False, rm_stereo=True)
+        std_mol_3 = standardize_chemical(violacein_mol, with_hs=False, with_stereo=False)
         assert Chem.MolToSmiles(std_mol_3) == 'O=C1NC(c2c[nH]c3ccc(O)cc23)=CC1=C1C(=O)Nc2ccccc21'
         # Test adding Hs + removing stereo
-        std_mol_4 = standardize_chemical(violacein_mol, add_hs=True, rm_stereo=True)
+        std_mol_4 = standardize_chemical(violacein_mol, with_hs=True, with_stereo=False)
         assert Chem.MolToSmiles(std_mol_4) == '[H]Oc1c([H])c([H])c2c(c1[H])c(C1=C([H])C(=C3C(=O)N([H])c4c([H])c([H])c([H])c([H])c43)C(=O)N1[H])c([H])n2[H]'
 
     def test_standardize_chemical_3(self):
@@ -48,7 +48,7 @@ class TestBasic2(object):
                 ),(
                     Chem.MolFromInchi('InChI=1S/C5H6N5O/c6-5-9-3-2(4(11)10-5)7-1-8-3/h1H,9H2,(H,7,8)(H2,6,10,11)')
                 ))
-        tuple_tuple_rdmol, tuple_index_failed = standardize_results(tuple_tuple_raw, add_hs=True, rm_stereo=True)
+        tuple_tuple_rdmol, tuple_index_failed = standardize_results(tuple_tuple_raw, with_hs=True, with_stereo=False)
         assert len(tuple_tuple_rdmol) == 1
         assert tuple_index_failed == [1]
 
@@ -57,7 +57,7 @@ class TestBasic2(object):
                 Chem.MolFromSmiles('[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C]([H])([H])[H]'),
                 Chem.MolFromSmiles('[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]')
                 )
-        tuple_tuple_rdmol, tuple_tuple_failed = standardize_results(tuple_tuple_rdmol=(tuple_raw,), add_hs=True, rm_stereo=True)
+        tuple_tuple_rdmol, tuple_tuple_failed = standardize_results(tuple_tuple_rdmol=(tuple_raw,), with_hs=True, with_stereo=False)
         inchikeys, inchis, smiles = handle_results(list_list_rdmol=tuple_tuple_rdmol)
         # Check number products
         assert len(inchikeys) == len(inchis) == len(smiles) == 1   # Only one set of result
