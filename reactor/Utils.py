@@ -10,7 +10,7 @@ import logging
 from rdkit import Chem
 from rdkit.Chem import MolToInchiKey
 from rdkit import RDLogger
-from chemtools.Standardizer import Standardizer
+from rpchemtools.Standardizer import Standardizer
 
 
 RD_LOGGER = RDLogger.logger()
