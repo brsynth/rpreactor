@@ -9,16 +9,7 @@ conda create --name myenv python=3.6
 source activate myenv
 conda install --channel rdkit rdkit=2018.09.1.0
 conda install --channel bioconda --channel conda-forge snakemake=5.4.0
-conda install --channel conda-forge pytest
-
-# Install dependancies
-# => Install first the chemtools code
-
-# Install as a local package
-pip install -e .
-
-# Test
-pytest -v
+conda install --channel tduigou rpchemtools
 ```
 
 ## Usage
@@ -29,6 +20,13 @@ python reactor/cli.py --with_hs true inline --inchi "InChI=1/C3H6O3/c1-2(4)3(5)6
 ```
 
 Also see snakemake workflows for example.
+
+## Build
+```bash
+conda create --name build_env python=3
+conda install conda-build
+conda build recipe --channel rdkit --channel tduigou
+```
 
 ## TO DO
 
