@@ -17,8 +17,8 @@ import multiprocessing as mp
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from reactor.Core import RuleBurnerCore
-from reactor.Utils import standardize_chemical, standardize_results, handle_results, ChemConversionError
+from rpreactor.Core import RuleBurnerCore
+from rpreactor.Utils import standardize_chemical, standardize_results, handle_results, ChemConversionError
 
 
 class RuleConversionError(Exception):

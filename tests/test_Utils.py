@@ -4,7 +4,7 @@ from rdkit.Chem import AllChem
 import pytest
 
 
-from reactor.Utils import standardize_chemical, standardize_results, handle_results
+from rpreactor.Utils import standardize_chemical, standardize_results, handle_results
 
 
 class TestBasic2(object):
