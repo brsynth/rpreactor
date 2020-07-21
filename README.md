@@ -1,6 +1,6 @@
-#
+# rpreactor
 
-Thomas Duigou (thomas.duigou@inra.fr), INRA, 2018-2019
+Apply reaction rules and parse results
 
 ## Installation
 ```bash
