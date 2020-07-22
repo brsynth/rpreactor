@@ -8,7 +8,7 @@ Apply reaction rules and parse results
 conda create --name myenv python=3
 source activate myenv
 conda install --channel rdkit rdkit=2019.03.1.0
-conda install --channel tduigou rpchemtools
+conda install --channel brsynth rpchemtools
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ python -m rpreactor.cli --with_hs true inline --inchi "InChI=1/C3H6O3/c1-2(4)3(5
 ```bash
 conda create --name build_env python=3
 conda install conda-build
-conda build recipe --channel rdkit --channel tduigou
+conda build recipe --channel rdkit --channel brsynth
 ```
 
 ## TO DO
