@@ -2,8 +2,8 @@ from setuptools import setup
 import versioneer
 
 requirements = [
-    'rdkit==2018.09.1.0',
-    'rpchemtools==0.3.1'
+    'rdkit==2019.03.1.0',
+    'rpchemtools==0.3.3'
 ]
 
 setup(
@@ -21,5 +21,6 @@ setup(
     classifiers=[
         'Topic :: Scientific/Engineering',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ]
 )
