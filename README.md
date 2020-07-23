@@ -27,7 +27,6 @@ conda build recipe --channel rdkit --channel brsynth
 ```bash
 conda create --name myenv python=3
 source activate myenv
-conda install --channel rdkit rdkit
 conda install --channel brsynth rpchemtools
 conda develop --channel brsynth rpreactor
 ```
