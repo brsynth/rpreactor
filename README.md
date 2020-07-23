@@ -1,5 +1,8 @@
 # rpreactor
 
+[![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/version.svg)](https://anaconda.org/brsynth/rpreactor)
+[![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/license.svg)](https://anaconda.org/brsynth/rpreactor)
+
 Apply reaction rules and parse results
 
 ## Installation
