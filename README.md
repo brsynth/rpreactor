@@ -23,6 +23,15 @@ conda install conda-build
 conda build recipe --channel rdkit --channel brsynth
 ```
 
+## Installation for development
+```bash
+conda create --name myenv python=3
+source activate myenv
+conda install --channel rdkit rdkit
+conda install --channel brsynth rpchemtools
+conda develop --channel brsynth rpreactor
+```
+
 ## TO DO
 
 - Add code to remove stereo in Utils.standardize_chemical, update tests accordingly.
