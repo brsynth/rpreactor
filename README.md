@@ -5,10 +5,8 @@ Apply reaction rules and parse results
 ## Installation
 ```bash
 # Setting up the conda environment
-conda create --name myenv python=3
+conda create --name myenv --channel rdkit --channel brsynth rpreactor
 source activate myenv
-conda install --channel rdkit rdkit=2019.03.1.0
-conda install --channel brsynth rpchemtools
 ```
 
 ## Usage
