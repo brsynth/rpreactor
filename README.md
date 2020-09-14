@@ -43,8 +43,9 @@ After a git clone:
 
 ```bash
 cd <repository>
-conda create --name dev_rpreactor --channel rdkit --channel brsynth rpchemtools
+conda create --name dev_rpreactor python=3
 conda activate dev_rpreactor
+conda install --channel rdkit --channel brsynth rpchemtools
 conda install pytest
 conda develop -n dev_rpreactor .
 ```
