@@ -331,7 +331,10 @@ class RuleBurner(object):
                         smiles_list=smiles
                         )
                 self._json.append(json_str)
-
+        # Clean the pool
+        if self._pool:
+            self._pool.terminate()
+            self._pool.join()
 
 def __cli():
     """Command line interface."""
