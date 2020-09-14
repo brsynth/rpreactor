@@ -1,8 +1,5 @@
-import rdkit
-from rdkit import Chem
-from rdkit.Chem import AllChem
 import pytest
-
+from rdkit import Chem
 
 from rpreactor.Utils import standardize_chemical, standardize_results, handle_results
 
