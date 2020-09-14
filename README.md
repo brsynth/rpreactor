@@ -2,6 +2,7 @@
 
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/version.svg)](https://anaconda.org/brsynth/rpreactor)
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/license.svg)](https://anaconda.org/brsynth/rpreactor)
+![GitHub Action (flake8 + pytest)](https://github.com/brsynth/rpreactor/workflows/run%20test%20suite%20(flake8%20+%20pytest)/badge.svg)
 
 **A command-line and python package to handle biochemical reaction rules.**
 
