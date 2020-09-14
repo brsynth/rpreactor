@@ -1,4 +1,4 @@
-name: run test suite (flake8 + pytest)
+name: Test suite (flake8 + pytest)
 
 on: [push]
 
