@@ -1,6 +1,6 @@
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/version.svg)](https://anaconda.org/brsynth/rpreactor)
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/license.svg)](https://anaconda.org/brsynth/rpreactor)
-![GitHub Action (flake8 + pytest)](https://github.com/brsynth/rpreactor/workflows/run%20test%20suite%20(flake8%20+%20pytest)/badge.svg)
+[![GitHub Action (flake8 + pytest)](https://github.com/brsynth/rpreactor/workflows/run%20test%20suite%20(flake8%20+%20pytest)/badge.svg)](https://github.com/brsynth/rpreactor/actions?query=workflow%3A%22run+test+suite+%28flake8+%2B+pytest%29%22)
 
 # rpreactor
 
