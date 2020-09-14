@@ -8,7 +8,7 @@ import pytest
 import multiprocessing
 
 
-from rpreactor.cli import RuleBurner, RuleConversionError, ChemConversionError
+from rpreactor.Core import RuleBurner, RuleConversionError, ChemConversionError
 
 
 # Data for tests
