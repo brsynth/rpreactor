@@ -2,11 +2,8 @@
 Test FireBurner class
 """
 
-import rdkit
-from rdkit import Chem
 import pytest
 import multiprocessing
-
 
 from rpreactor.Core import RuleBurner, RuleConversionError, ChemConversionError
 
