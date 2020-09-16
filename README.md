@@ -18,6 +18,8 @@ If you are interested by *rpreactor* you may also be interested in:
 
 ## Installation
 
+**Important**: rpreactor needs python version prior to 3.8 and rdkit version 2019.03.1.0.
+
 We strongly recommend you to use [conda package manager](https://docs.conda.io/en/latest/), and to follow those steps: 
 
 ```bash
@@ -25,6 +27,13 @@ We strongly recommend you to use [conda package manager](https://docs.conda.io/e
 conda create --name <myenv> --channel rdkit --channel brsynth rpreactor
 conda activate <myenv>
 ```
+
+```bash
+# installation in an already existing environment <myenv>
+conda activate <myenv>
+conda install --channel brsynth rpreactor
+conda activate <myenv>
+``` 
 
 ## Usage
 
