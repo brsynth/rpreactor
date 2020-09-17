@@ -8,35 +8,27 @@ source:
   path: ..
 
 build:
-  # If the installation is complex, or different between Unix and Windows, use
-  # separate bld.bat and build.sh files instead of this key.  Add the line
-  # "skip: True  # [py<35]" (for example) to limit to Python 3.5 and newer, or
-  # "skip: True  # [not win]" to limit to Windows.
+  # Build from the setup.py instructions (inherit its constraints)
   script: {{ PYTHON }} -m pip install --no-deps --ignore-installed -vv .
   noarch: python
-  
-  
 
 requirements:
-  # build:
-  #   - {{ compilers('c') }}
   host:
     - python
     - pip
   run:
     - python
-    # dependencies are defined in setup.py
-    {% for dep in data['install_requires'] %}
-    - {{ dep.lower() }}
-    {% endfor %}
+    - rdkit=2019.03.1.0
 
 test:
   source_files:
     - tests
   requires:
     - pytest
-    - pytest-cov
+  imports:
+    - rpreactor
   commands:
+    - python -m rpreactor.cli --help
     - pytest tests -v
 
 about:

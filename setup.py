@@ -1,10 +1,9 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 import versioneer
 
-requirements = [
-    'python<3.8',
-    'rdkit==2019.03.1.0',
-]
+# WARNING: installation with setuptool or pip is not recommended since it does not list all dependencies.
+# For instance, rdkit MUST be installed but WILL NOT be installed via pip. Prefer using conda.
+# Have a look at the conda recipe (recipe/meta.yml) for a complete list of dependencies.
 
 setup(
     name='rpreactor',
@@ -15,8 +14,8 @@ setup(
     author='Thomas Duigou',
     author_email='thomas.duigou@inrae.fr',
     url='https://github.com/tduigou/rpreactor',
-    packages=['rpreactor'],
-    install_requires=requirements,
+    packages=find_packages(),
+    python_requires='>=3.6, <3.8',
     keywords='rpchemtools',
     classifiers=[
         'Topic :: Scientific/Engineering',

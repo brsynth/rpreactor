@@ -32,7 +32,6 @@ conda activate <myenv>
 # installation in an already existing environment <myenv>
 conda activate <myenv>
 conda install --channel brsynth rpreactor
-conda activate <myenv>
 ``` 
 
 ## Usage
@@ -64,10 +63,8 @@ After a git clone:
 
 ```bash
 cd <repository>
-conda create --name dev_rpreactor python=3
+conda create --name dev_rpreactor --channel rdkit python=3.7 rdkit=2019.03.1.0
 conda activate dev_rpreactor
-conda install --channel rdkit --channel brsynth rpchemtools
-conda install pytest
 conda develop -n dev_rpreactor .
 ```
 
@@ -104,7 +101,7 @@ If you want to check the build process locally:
 ```bash
 conda install conda-build
 cd <repository>
-conda build recipe --channel rdkit --channel brsynth
+conda build recipe --channel rdkit
 ```
 
 ### Develop with Docker
