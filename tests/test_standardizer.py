@@ -1,5 +1,3 @@
-import pytest
-
 import inspect
 from rpreactor.chemical.standardizer import Standardizer
 from rdkit.Chem import MolFromSmiles, MolToSmiles
@@ -20,8 +18,6 @@ def test_sequence_minimal():
     ans = Standardizer().compute(mol)
     assert MolToInchi(ans) == 'InChI=1S/C20H13N3O3/c24-10-5-6-15-12(7-10)14(9-21-15)17-8-13(19(25)23-17)18-11-3-1-2-4-16(11)22-20(18)26/h1-9,21,24H,(H,22,26)(H,23,25)/b18-13+'
     assert MolToSmiles(ans) == 'OC1=NC(c2c[nH]c3ccc(O)cc23)=C/C1=C1\\C(O)=Nc2ccccc21'
-    # L-Lactate
-    mol = MolFromInchi('')
 
 
 def test_sequence_rr_legacy():

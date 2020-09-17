@@ -1,5 +1,3 @@
-import pytest
-
 from rpreactor.chemical.filters import Filters
 from rdkit.Chem import MolFromSmiles, MolToSmiles
 from rdkit.Chem import MolFromInchi, MolToInchi
@@ -34,12 +32,12 @@ def test_commute_inchi():
 
 def test_remove_isotope():
     mol = Filters.remove_isotope(MolFromSmiles('c1cc[14cH]cc1'))
-    assert MolToSmiles(mol) == ('c1ccccc1')
+    assert MolToSmiles(mol) == 'c1ccccc1'
 
 
 def test_neutralise_charge():
     mol = Filters.neutralise_charge(MolFromSmiles('CC(C(=O)[O-])O'))
-    assert MolToSmiles(mol) == ('CC(O)C(=O)O')
+    assert MolToSmiles(mol) == 'CC(O)C(=O)O'
 
 
 def test_add_hydrogen():

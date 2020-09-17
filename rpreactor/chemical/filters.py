@@ -211,27 +211,26 @@ class Filters(object):
         :return  mol_out: RDKit Mol
         """
         return cls._neutralise_charge_method1(mol_in)
-        # return cls._neutralise_charge_method2(mol_in)
 
     @classmethod
-    def add_hydrogen(cls, mol_in, addCoords=True):
+    def add_hydrogen(cls, mol_in, add_coords=True):
         """Explicit all hydrogens.
 
         :param    mol_in: RDKit Mol
-        :param addCoords: Add coordinate to added Hs, bool
+        :param add_coords: Add coordinate to added Hs, bool
         :return  mol_out: RDKit Mol
         """
-        return AddHs(mol_in, explicitOnly=False, addCoords=addCoords)
+        return AddHs(mol_in, explicitOnly=False, addCoords=add_coords)
 
     @classmethod
-    def remove_hydrogen(cls, mol_in, addCoords=True):
+    def remove_hydrogen(cls, mol_in, add_coords=True):
         """Implicit all hydrogens.
 
         :param    mol_in: RDKit Mol
-        :param addCoords: Add coordinate to added Hs, bool
+        :param add_coords: Add coordinate to added Hs, bool
         :return  mol_out: RDKit Mol
         """
-        return RemoveHs(mol_in, explicitOnly=False, addCoords=addCoords)
+        return RemoveHs(mol_in, explicitOnly=False, addCoords=add_coords)
 
     @classmethod
     def kekulize(cls, mol_in):

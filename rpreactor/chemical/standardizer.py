@@ -61,7 +61,7 @@ class Standardizer(object):
         mol = F.neutralise_charge(mol)
         SanitizeMol(mol, sanitizeOps=SanitizeFlags.SANITIZE_ALL, catchErrors=False)
         mol = F.keep_biggest(mol)
-        mol = F.add_hydrogen(mol, addCoords=True)
+        mol = F.add_hydrogen(mol, add_coords=True)
         mol = F.kekulize(mol)
         return mol
 
@@ -116,7 +116,7 @@ class Standardizer(object):
             SanitizeMol(mol, sanitizeOps=SanitizeFlags.SANITIZE_ALL, catchErrors=False)
         #
         if OP_ADD_HYDROGEN:
-            mol = F.add_hydrogen(mol, addCoords=True)
+            mol = F.add_hydrogen(mol, add_coords=True)
         if OP_KEKULIZE:
             mol = F.kekulize(mol)
         #
