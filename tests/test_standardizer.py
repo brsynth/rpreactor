@@ -1,8 +1,7 @@
 import pytest
 
 import inspect
-from rpchemtools.Standardizer import Standardizer
-from rpchemtools.Sequences import sequence_tunable
+from rpreactor.chemical.standardizer import Standardizer
 from rdkit.Chem import MolFromSmiles, MolToSmiles
 from rdkit.Chem import MolFromInchi, MolToInchi
 
@@ -35,10 +34,10 @@ def test_sequence_rr_legacy():
 
 def test_sequence_tunable():
     # Check default arguments
-    args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = inspect.getfullargspec(sequence_tunable)
+    args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = inspect.getfullargspec(Standardizer.sequence_tunable)
     default_params = dict(zip(args[-len(defaults):], defaults))
     assert default_params == {
-            'OP_REMOVE_ISOTOPE':True,
+            'OP_REMOVE_ISOTOPE': True,
             'OP_NEUTRALISE_CHARGE': True,
             'OP_REMOVE_STEREO': False,
             'OP_COMMUTE_INCHI': False,

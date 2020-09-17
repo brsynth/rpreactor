@@ -10,7 +10,7 @@ import logging
 from rdkit import Chem
 from rdkit.Chem import MolToInchiKey
 from rdkit import RDLogger
-from rpchemtools.Standardizer import Standardizer
+from rpreactor.chemical.standardizer import Standardizer
 
 
 RD_LOGGER = RDLogger.logger()
@@ -140,7 +140,7 @@ def standardize_results(tuple_tuple_rdmol, with_hs=True, with_stereo=True):
                     raise ChemConversionError(msg)
             # Get unique depiction
             depic = '.'.join(sorted(list_inchikeys))
-            # Stoer only if unique depiction never met
+            # Store only if unique depiction never met
             if depic not in uniq_depics:
                 uniq_depics.add(depic)
                 list_list_std.append(list_std)

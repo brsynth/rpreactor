@@ -4,7 +4,6 @@ import versioneer
 requirements = [
     'python<3.8',
     'rdkit==2019.03.1.0',
-    'rpchemtools==0.4.0'
 ]
 
 setup(

@@ -5,7 +5,7 @@ Test FireBurner class
 import pytest
 import multiprocessing
 
-from rpreactor.Core import RuleBurner, RuleConversionError, ChemConversionError
+from rpreactor.rule.burner import RuleBurner, RuleConversionError, ChemConversionError
 
 
 # Data for tests

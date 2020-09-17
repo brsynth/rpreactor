@@ -11,14 +11,16 @@ are defined in the Standardizer class.
 @author: Thomas Duigou, 2018-2019
 """
 
-from rpchemtools import Sequences
-from rpchemtools.Filters import Filters
 from rdkit.Chem import Cleanup, SanitizeMol, SanitizeFlags
 from rdkit.Chem.AllChem import AssignStereochemistry
+from .filters import Filters
 
 
 class Standardizer(object):
-    """Handle standardization of compound(s) through user-defined "filters"."""
+    """Handle standardization of compound(s) through user-defined "filters".
+
+    Some pre-defined sequences of filters are defined in this class.
+    """
 
     def __call__(self, mol):
         """Calling a Standardizer object like a function is the same as calling its "compute" method.
@@ -36,8 +38,8 @@ class Standardizer(object):
             self._sequence_fun = Standardizer.sequence_minimal
         elif callable(sequence_fun):     # guess: fun_filters is the function itself
             self._sequence_fun = sequence_fun
-        elif type(sequence_fun) == str:  # guess: sequence_fun is the name of the function
-            self._sequence_fun = getattr(Sequences, sequence_fun)
+        elif type(sequence_fun) == str:  # guess: sequence_fun is the name of the method
+            self._sequence_fun = getattr(Standardizer, sequence_fun)
         # Arguments to be passed to any custom standardization function
         self._params = params if params else None
 

@@ -1,6 +1,6 @@
 import pytest
 
-from rpchemtools.Filters import Filters
+from rpreactor.chemical.filters import Filters
 from rdkit.Chem import MolFromSmiles, MolToSmiles
 from rdkit.Chem import MolFromInchi, MolToInchi
 

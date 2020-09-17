@@ -1,7 +1,7 @@
 import pytest
 from rdkit import Chem
 
-from rpreactor.Utils import standardize_chemical, standardize_results, handle_results
+from rpreactor.rule.utils import standardize_chemical, standardize_results, handle_results
 
 
 class TestBasic2(object):
