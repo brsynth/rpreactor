@@ -8,7 +8,7 @@ import sys
 import logging
 import argparse
 
-from rpreactor.Core import RuleBurner
+from rpreactor.rule.burner import RuleBurner
 
 
 def __cli():

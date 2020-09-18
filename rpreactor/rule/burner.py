@@ -14,37 +14,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 import multiprocessing as mp
 
-from rpreactor.Utils import standardize_chemical, standardize_results, handle_results, ChemConversionError
-
-
-class RuleConversionError(Exception):
-    """Raised when something went wrong during SMARTS conversion to RDKit rxn object."""
-
-    def __init__(self, msg):
-        self._msg = msg
-
-    def __str__(self):
-        return "RULE-CONVERSION-ERROR: {}".format(self._msg)
-
-
-class RuleMatchError(Exception):
-    """Raised when something went wrong when matching a rule."""
-
-    def __init__(self, msg):
-        self._msg = msg
-
-    def __str__(self):
-        return "RULE-MATCH-ERROR: {}".format(self._msg)
-
-
-class RuleFireError(Exception):
-    """Raised when something went wrong when firing a rule."""
-
-    def __init__(self, msg):
-        self._msg = msg
-
-    def __str__(self):
-        return "RULE-FIRE-ERROR: {}".format(self._msg)
+from rpreactor.chemical.standardizer import Standardizer
+from rpreactor.rule.exceptions import ChemConversionError, RuleMatchError, RuleFireError, RuleConversionError
 
 
 class RuleBurnerCore(object):
@@ -57,7 +28,6 @@ class RuleBurnerCore(object):
         
         :param  rd_rule:    RDKit reaction object, reactio rule to apply
         :param  rd_mol:     RDKit mol object, chemical
-        :param  timeout:    str, Reaction rule SMARTS
         """
         # Internal settings
         USE_CHIRALITY_IN_MATCH = False  # Default value anyway substrucre matching
@@ -128,18 +98,14 @@ class RuleBurner(object):
         # Sanitization
         self._with_hs = with_hs
         self._with_stereo = with_stereo
+        if self._with_stereo:
+            raise NotImplementedError("Stereo is not implemented at the time being.")
 
         # Check for consistency between depictions and IDs
-        try:
-            if self._rid_list:
-                assert len(self._rsmarts_list) == len(self._rid_list)
-        except AssertionError as e:
+        if self._rid_list and len(self._rsmarts_list) != len(self._rid_list):
             logging.warning("ID and depiction rule lists have different size, compound IDs will be ignored")
 
-        try:
-            if self._cid_list:
-                assert len(self._inchi_list) == len(self._cid_list)
-        except AssertionError as e:
+        if self._cid_list and len(self._inchi_list) != len(self._cid_list):
             logging.warning("ID and depiction compounds lists have different size, rule IDs will be ignored")
 
         # Output
@@ -154,6 +120,110 @@ class RuleBurner(object):
 
         # A place to swim
         self._pool = None
+
+    def _standardize_chemical(self, rdmol, heavy=False):
+        """Simple standardization of RDKit molecule."""
+        params = {
+            'OP_REMOVE_ISOTOPE': False,
+            'OP_NEUTRALISE_CHARGE': False,
+            'OP_REMOVE_STEREO': not self._with_stereo,
+            'OP_COMMUTE_INCHI': True,
+            'OP_KEEP_BIGGEST': False,
+            'OP_ADD_HYDROGEN': self._with_hs,
+            'OP_KEKULIZE': False,
+            'OP_NEUTRALISE_CHARGE_LATE': True
+        }
+        if heavy:
+            params['OP_REMOVE_ISOTOPE'] = True
+            params['OP_NEUTRALISE_CHARGE'] = True
+            params['OP_KEEP_BIGGEST'] = True
+        return Standardizer(sequence_fun='sequence_tunable', params=params).compute(rdmol)
+
+    def _standardize_results(self, tuple_tuple_rdmol):
+        """Perform sanitization and remove duplicates from reaction rule results.
+
+        :param      tuple_tuple_rdmol:      tuple of tuple of RDKit Mol
+        :returns    list_list_std:          list of list of standardized RDKit Mol
+        :returns    list_idx_tuple_failed:  list of index of tuples that failed the standardization
+        """
+        uniq_depics = set()
+        list_list_std = list()
+        list_idx_tuple_failed = list()
+
+        for idx_tuple, tuple_rdmol in enumerate(tuple_tuple_rdmol):
+            try:
+                list_std = list()
+                list_inchikeys = list()
+                # Standardize
+                for rdmol in tuple_rdmol:
+                    for rd_frag in Chem.GetMolFrags(rdmol, asMols=True, sanitizeFrags=False):
+                        list_std.append(self._standardize_chemical(rd_frag))
+                # Get InChIKey
+                for rdmol in list_std:
+                    inchikey = Chem.MolToInchiKey(rdmol)
+                    if inchikey:
+                        list_inchikeys.append(inchikey)
+                    else:
+                        msg = 'Product conversion to InChIKey raised an empty string'
+                        logging.warning(ChemConversionError(msg))
+                        raise ChemConversionError(msg)
+                # Get unique depiction
+                depic = '.'.join(sorted(list_inchikeys))
+                # Store only if unique depiction never met
+                if depic not in uniq_depics:
+                    uniq_depics.add(depic)
+                    list_list_std.append(list_std)
+            except ChemConversionError as e:
+                logging.warning("{}".format(e))
+                list_idx_tuple_failed.append(idx_tuple)
+                raise e
+            except Exception as e:
+                logging.warning("Cannot handle a tuple of result, skipped")
+                logging.warning("{}".format(e))
+                list_idx_tuple_failed.append(idx_tuple)
+
+        return list_list_std, list_idx_tuple_failed
+
+    @staticmethod
+    def _handle_results(list_list_rdmol):
+        """Generate InChIKey, InChI and SMILES from results.
+
+        :param      list_list_rdmol:        list of list of RDKit Mol
+        :returns    list_list_inchikeys:    list of list of InchiKeys
+        :returns    list_list_inchis:       list of list of Inchis
+        :returns    list_list_smiles:       list of list of SMILES
+        """
+        list_list_inchikeys = list()
+        list_list_inchis = list()
+        list_list_smiles = list()
+
+        for list_rdmol in list_list_rdmol:
+            try:
+                list_inchikeys = list()
+                list_inchis = list()
+                list_smiles = list()
+                for rdmol in list_rdmol:
+                    # Get & check depictions
+                    inchikey = Chem.MolToInchiKey(rdmol)  # TODO: this part could be optimized
+                    inchi = Chem.MolToInchi(rdmol)
+                    smiles = Chem.MolToSmiles(rdmol)
+                    if not all([inchikey, inchi, smiles]):
+                        raise ChemConversionError("Chemical conversion error")
+                    # Store if we reach there
+                    list_inchikeys.append(inchikey)
+                    list_inchis.append(inchi)
+                    list_smiles.append(smiles)
+                # Store if we reach the end
+                list_list_inchikeys.append(list_inchikeys)
+                list_list_inchis.append(list_inchis)
+                list_list_smiles.append(list_smiles)
+            except ChemConversionError as e:
+                logging.warning("{}".format(e))
+                raise e
+            except Exception as e:
+                logging.warning("Cannot handle a tuple of result, skipped")
+                logging.warning("{}".format(e))
+        return list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
     def _run_with_timeout(self, worker, kwargs, timeout=5):
         """Generic wrapper making use of multiprocessing to garantee effective timeout.
@@ -172,14 +242,14 @@ class RuleBurner(object):
             end_time = time.time()
             exec_time = round(end_time - start_time, 4)
         except mp.TimeoutError as e:
-            kill(self._pool)
+            _kill(self._pool)
             self._pool = mp.Pool(processes=1)
             raise e
         except Exception as e:
             raise e
         return ans, exec_time
 
-    def _jsonify(self, rsmarts, inchi, rid=None, cid=None,
+    def _jsonify(self, rid=None, cid=None,
                  has_match=None, match_timed_out=None,
                  match_exec_time=None, match_error=None,
                  fire_timed_out=None,
@@ -187,8 +257,6 @@ class RuleBurner(object):
                  inchikeys_list=None, inchis_list=None, smiles_list=None):
         """Return the results as a JSON string.
 
-        :param      rsmarts:            str, reaction rule string depiction
-        :param      inchi:              str, substrate string depiction
         :param      rid:                str, reaction rule ID
         :param      cid:                str, substrate ID
         :param      has_match:          bool or None, True if there is match
@@ -206,9 +274,7 @@ class RuleBurner(object):
         # General info
         data = {
             'rule_id': rid,
-            # 'rule_smarts': rsmarts,
             'substrate_id': cid,
-            # 'substrate_inchi': inchi,
         }
         # Match info
         if self._try_match:
@@ -250,6 +316,7 @@ class RuleBurner(object):
 
     def compute(self):
         """Rules under fire."""
+        # TODO: simplify
         for rindex, rsmarts in enumerate(self._rsmarts_list):
             # Extract corresponding reaction rule ID if any
             if self._rid_list:
@@ -271,10 +338,10 @@ class RuleBurner(object):
                     cid = None
                 # Get standardized RDKit mol
                 try:
-                    # rd_mol = Chem.MolFromSmiles(csmiles, sanitize=False)  # Important: Sanitize = False
                     rd_mol = Chem.MolFromInchi(inchi, sanitize=False)  # Important: Sanitize = False
-                    rd_mol = standardize_chemical(rd_mol, with_hs=self._with_hs, with_stereo=self._with_stereo, heavy=True)
+                    rd_mol = self._standardize_chemical(rd_mol, heavy=True)
                 except Exception as e:
+                    logging.warning(e)
                     raise ChemConversionError(e) from e
                 # General args to used for both matching and firing
                 kwargs = {
@@ -289,59 +356,46 @@ class RuleBurner(object):
                 if self._try_match:
                     try:
                         has_match, match_exec_time = self._run_with_timeout(
-                                worker=worker_match, kwargs=kwargs,
+                                worker=_worker_match, kwargs=kwargs,
                                 timeout=self._match_timeout
                                 )
                         match_timed_out = False
-                        match_error = None
                     except mp.TimeoutError as e:
-                        has_match = None
-                        match_exec_time = None
                         match_timed_out = True
                         match_error = str(e)
                     except Exception as e:
-                        has_match = None
-                        match_exec_time = None
                         match_timed_out = False
                         match_error = str(e)
                 # Firing
+                fire_exec_time = None
+                fire_timed_out = None
+                fire_error = None
+                inchikeys = None
+                inchis = None
+                smiles = None
                 try:
                     ans, fire_exec_time = self._run_with_timeout(
-                            worker=worker_fire, kwargs=kwargs,
+                            worker=_worker_fire, kwargs=kwargs,
                             timeout=self._fire_timeout
                             )
-                    rdmols, failed = standardize_results(ans, with_hs=self._with_hs, with_stereo=self._with_stereo)
-                    inchikeys, inchis, smiles = handle_results(rdmols)
+                    rdmols, failed = self._standardize_results(ans)
+                    inchikeys, inchis, smiles = self._handle_results(rdmols)
                     fire_timed_out = False
-                    fire_error = None
                 except ChemConversionError as e:
-                    inchikeys = None
-                    inchis = None
-                    smiles = None
                     fire_timed_out = False
                     fire_error = str(e)
                     logging.warning(e)
                 except mp.TimeoutError as e:
-                    fire_exec_time = None
-                    inchikeys = None
-                    inchis = None
-                    smiles = None
                     fire_timed_out = True
                     fire_error = str(e)
                     logging.error('TIMEOUT: cid={}, rid={}'.format(cid, rid))
                     logging.error('TIMEOUT: original error={}'.format(e))
                 except Exception as e:
-                    fire_exec_time = None
-                    inchikeys = None
-                    inchis = None
-                    smiles = None
                     fire_timed_out = False
                     fire_error = str(e)
                     logging.warning(e)
                 # JSONify and store
                 json_str = self._jsonify(
-                        rsmarts=rsmarts,
-                        inchi=inchi,
                         rid=rid,
                         cid=cid,
                         has_match=has_match,
@@ -362,19 +416,19 @@ class RuleBurner(object):
             self._pool.join()
 
 
-def worker_match(kwargs):
+def _worker_match(kwargs):
     """Check if a chemical can be fired by a rule according to left side."""
     w = RuleBurnerCore(**kwargs)
     return w.match()
 
 
-def worker_fire(kwargs):
+def _worker_fire(kwargs):
     """Apply a reaction a rule on a chemical."""
     r = RuleBurnerCore(**kwargs)
     return r.fire()
 
 
-def kill(pool):
+def _kill(pool):
     """Send SIGTERMs to kill all processes belonging to pool.
 
     Will not work on Windows OS.
