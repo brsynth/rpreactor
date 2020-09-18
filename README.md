@@ -45,6 +45,7 @@ python -m rpreactor.cli --with_hs true inline --inchi "InChI=1/C3H6O3/c1-2(4)3(5
 
 From within a script:
 ```python
+import json
 import rpreactor
 
 inchi = 'InChI=1/C3H6O3/c1-2(4)3(5)6/h2,4H,1H3,(H,5,6)'
@@ -52,7 +53,7 @@ rsmarts = '([#8&v2:1](-[#6&v4:2](-[#6&v4:3](-[#8&v2:4]-[#1&v1:5])=[#8&v2:6])(-[#
 
 o = rpreactor.RuleBurner(rsmarts_list=[rsmarts], inchi_list=[inchi], with_hs=True, match_timeout=1, fire_timeout=1)
 o.compute()
-print(o._json)
+res = json.loads('[' + ', '.join(o._json) + ']')
 ```
 
 ## For developers
