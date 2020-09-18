@@ -15,7 +15,7 @@ from rdkit.Chem import AllChem
 import multiprocessing as mp
 
 from rpreactor.chemical.standardizer import Standardizer
-from .exceptions import ChemConversionError, RuleMatchError, RuleFireError, RuleConversionError
+from rpreactor.rule.exceptions import ChemConversionError, RuleMatchError, RuleFireError, RuleConversionError
 
 
 class RuleBurnerCore(object):

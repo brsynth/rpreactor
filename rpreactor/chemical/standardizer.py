@@ -13,7 +13,7 @@ are defined in the Standardizer class.
 
 from rdkit.Chem import Cleanup, SanitizeMol, SanitizeFlags
 from rdkit.Chem.AllChem import AssignStereochemistry
-from .filters import Filters
+from rpreactor.chemical.filters import Filters
 
 
 class Standardizer(object):
