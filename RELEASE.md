@@ -1,5 +1,10 @@
 # Release history
 
+## 0.7.0
+- feat: fusion project rpchemtools
+- fix: update build instructions to package sub-packages
+- refactor!: hide private methods
+
 ## 0.6.2
 - docs: install instructions update
 - chore: introduce RELEASE file
