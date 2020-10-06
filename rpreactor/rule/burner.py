@@ -6,13 +6,12 @@ import os
 import sys
 import gzip
 import json
-import time
-import signal
+import concurrent.futures
 import logging
 
+import pebble
 from rdkit import Chem
 from rdkit.Chem import AllChem
-import multiprocessing as mp
 
 from rpreactor.chemical.standardizer import Standardizer
 from rpreactor.rule.exceptions import ChemConversionError, RuleMatchError, RuleFireError, RuleConversionError
@@ -64,16 +63,13 @@ class RuleBurner(object):
 
     def __init__(
             self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None,
-            match_timeout=1, fire_timeout=1, ofile=None, compress=False,
-            with_hs=False, with_stereo=False):
+            ofile=None, compress=False, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavor decisions and firing rules.
 
         :param  rsmarts_list:   list of reaction rule SMARTS
         :param  inchi_list:     list of inchis
         :param  rid_list:       list of reaction rule IDs
         :param  cid_list:       list of chemical IDs
-        :param  match_timeout:  int, timeout execution for compound pre-matching
-        :param  fire_timeout:   int, timeout execution for rule firing
         :param  ofile:          str, Output file to store results
         :param  compress:       bool, enable gzip compression on output
         :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
@@ -92,8 +88,6 @@ class RuleBurner(object):
 
         # Settings
         self._try_match = self._TRY_MATCH  # TODO: add option for that
-        self._match_timeout = match_timeout
-        self._fire_timeout = fire_timeout
 
         # Sanitization
         self._with_hs = with_hs
@@ -225,30 +219,6 @@ class RuleBurner(object):
                 logging.warning("{}".format(e))
         return list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
-    def _run_with_timeout(self, worker, kwargs, timeout=5):
-        """Generic wrapper making use of multiprocessing to garantee effective timeout.
-
-        :param  worker:     function to be called
-        :param  kwargs:     dictionnary of args to be passed to the called function
-        :param  timeout:    int, timeout
-        :returns            depends of the worker function
-        """
-        if self._pool is None:
-            self._pool = mp.Pool(processes=1)
-        try:
-            start_time = time.time()
-            res = self._pool.apply_async(worker, kwds={'kwargs': kwargs})
-            ans = res.get(timeout=timeout)
-            end_time = time.time()
-            exec_time = round(end_time - start_time, 4)
-        except mp.TimeoutError as e:
-            _kill(self._pool)
-            self._pool = mp.Pool(processes=1)
-            raise e
-        except Exception as e:
-            raise e
-        return ans, exec_time
-
     def _jsonify(self, rid=None, cid=None,
                  has_match=None, match_timed_out=None,
                  match_exec_time=None, match_error=None,
@@ -314,136 +284,88 @@ class RuleBurner(object):
             ofh.write(content)
         ofh.close()
 
-    def compute(self):
-        """Rules under fire."""
-        # TODO: simplify
+    def _init_rdkit_rule(self, rsmarts):
+        """Return RDKit reaction object."""
+        try:
+            rd_rule = AllChem.ReactionFromSmarts(rsmarts)
+            rd_rule.Initialize()
+        except Exception as e:
+            raise RuleConversionError(e) from e
+        return rd_rule
+
+    def _init_rdkit_mol_from_inchi(self, inchi):
+        """Return standardized RDKit molecule object."""
+        try:
+            rd_mol = Chem.MolFromInchi(inchi, sanitize=False)  # important: Sanitize = False
+            rd_mol = self._standardize_chemical(rd_mol, heavy=True)
+        except Exception as e:
+            raise ChemConversionError(e) from e
+        return rd_mol
+
+    def _gen_couples_rule_mol(self):
+        """Yield couples of rule and molecule fully initialized objects."""
+        # TODO: optimize to keep rd_mol object in memory for reasonably small chunk (500?)
         for rindex, rsmarts in enumerate(self._rsmarts_list):
-            # Extract corresponding reaction rule ID if any
-            if self._rid_list:
-                rid = self._rid_list[rindex]
-            else:
-                rid = None
-            # Get RDKit reaction object
-            try:
-                rd_rule = AllChem.ReactionFromSmarts(rsmarts)
-                rd_rule.Initialize()
-            except Exception as e:
-                raise RuleConversionError(e) from e
-
+            rid = self._rid_list[rindex] if self._rid_list else None
+            rd_rule = self._init_rdkit_rule(rsmarts)  # WARNING: may throw exception
             for cindex, inchi in enumerate(self._inchi_list):
-                # Extract corresponding substrate ID if any
-                if self._cid_list:
-                    cid = self._cid_list[cindex]
-                else:
-                    cid = None
-                # Get standardized RDKit mol
+                cid = self._cid_list[cindex] if self._cid_list else None
+                rd_mol = self._init_rdkit_mol_from_inchi(inchi)  # WARNING: may throw exception
+                yield rid, rd_rule, cid, rd_mol
+
+    def compute(self, max_workers=1, timeout=60):
+        """Apply all rules on all chemicals."""
+        # TODO: should yield the results to be memory-efficient instead of storing in self._json
+        # TODO: parralelization will be useless, the time-consuming part is rule and chemical initialization
+        with pebble.ProcessPool(max_workers=max_workers) as pool:
+            # Submit all the tasks
+            all_running_tasks = []  # list of Future objects
+            for rid, rd_rule, cid, rd_mol in self._gen_couples_rule_mol():
+                task = {
+                    "rid": rid,
+                    "cid": cid,
+                    "future": pool.schedule(_task_fire, args=({'rd_rule': rd_rule, 'rd_mol': rd_mol},), timeout=timeout)
+                }
+                all_running_tasks.append(task)
+            # Gather the results
+            for task in all_running_tasks:
+                result = {
+                    'rule_id': task["rid"],
+                    'substrate_id': task["cid"],
+                    'match': "DEPRECATED",
+                    'match_timed_out': "DEPRECATED",
+                    'match_exec_time': "DEPRECATED",
+                    'match_error': "DEPRECATED",
+                    'fire_timed_out': None,
+                    'fire_exec_time': None,
+                    'fire_error': None,
+                    'product_inchikeys': None,
+                    'product_inchis': None,
+                    'product_smiles': None,
+                }
                 try:
-                    rd_mol = Chem.MolFromInchi(inchi, sanitize=False)  # Important: Sanitize = False
-                    rd_mol = self._standardize_chemical(rd_mol, heavy=True)
-                except Exception as e:
-                    logging.warning(e)
-                    raise ChemConversionError(e) from e
-                # General args to used for both matching and firing
-                kwargs = {
-                        'rd_rule': rd_rule,
-                        'rd_mol': rd_mol
-                        }
-                # Matching
-                has_match = None
-                match_exec_time = None
-                match_timed_out = None
-                match_error = None
-                if self._try_match:
-                    try:
-                        has_match, match_exec_time = self._run_with_timeout(
-                                worker=_worker_match, kwargs=kwargs,
-                                timeout=self._match_timeout
-                                )
-                        match_timed_out = False
-                    except mp.TimeoutError as e:
-                        match_timed_out = True
-                        match_error = str(e)
-                    except Exception as e:
-                        match_timed_out = False
-                        match_error = str(e)
-                # Firing
-                fire_exec_time = None
-                fire_timed_out = None
-                fire_error = None
-                inchikeys = None
-                inchis = None
-                smiles = None
-                try:
-                    ans, fire_exec_time = self._run_with_timeout(
-                            worker=_worker_fire, kwargs=kwargs,
-                            timeout=self._fire_timeout
-                            )
+                    ans = task['future'].result()
                     rdmols, failed = self._standardize_results(ans)
-                    inchikeys, inchis, smiles = self._handle_results(rdmols)
-                    fire_timed_out = False
-                except ChemConversionError as e:
-                    fire_timed_out = False
-                    fire_error = str(e)
-                    logging.warning(e)
-                except mp.TimeoutError as e:
-                    fire_timed_out = True
-                    fire_error = str(e)
-                    logging.error('TIMEOUT: cid={}, rid={}'.format(cid, rid))
-                    logging.error('TIMEOUT: original error={}'.format(e))
-                except Exception as e:
-                    fire_timed_out = False
-                    fire_error = str(e)
-                    logging.warning(e)
-                # JSONify and store
-                json_str = self._jsonify(
-                        rid=rid,
-                        cid=cid,
-                        has_match=has_match,
-                        match_timed_out=match_timed_out,
-                        match_exec_time=match_exec_time,
-                        match_error=match_error,
-                        fire_timed_out=fire_timed_out,
-                        fire_exec_time=fire_exec_time,
-                        fire_error=fire_error,
-                        inchikeys_list=inchikeys,
-                        inchis_list=inchis,
-                        smiles_list=smiles
-                        )
-                self._json.append(json_str)
-        # Clean the pool
-        if self._pool:
-            self._pool.terminate()
-            self._pool.join()
+                    result['product_inchikeys'], result['product_inchis'], result['product_smiles'] = self._handle_results(rdmols)
+                    result['fire_timed_out'] = False
+                except concurrent.futures.TimeoutError:
+                    logging.warning(f"Task {task['rid']} on {task['cid']} timed-out.")
+                    result['fire_timed_out'] = True
+                    # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
+                except pebble.ProcessExpired as error:
+                    logging.critical(f"Task {task['rid']} on {task['cid']} crashed unexpectedly: {error}.")
+                finally:
+                    json_str = json.dumps(result, indent=self._INDENT_JSON)
+                    self._json.append(json_str)
 
 
-def _worker_match(kwargs):
+def _task_match(kwargs):
     """Check if a chemical can be fired by a rule according to left side."""
     w = RuleBurnerCore(**kwargs)
     return w.match()
 
 
-def _worker_fire(kwargs):
+def _task_fire(kwargs):
     """Apply a reaction a rule on a chemical."""
     r = RuleBurnerCore(**kwargs)
     return r.fire()
-
-
-def _kill(pool):
-    """Send SIGTERMs to kill all processes belonging to pool.
-
-    Will not work on Windows OS.
-    """
-    # stop repopulating new child
-    pool._state = mp.pool.TERMINATE
-    pool._worker_handler._state = mp.pool.TERMINATE
-    for p in pool._pool:
-        os.kill(p.pid, signal.SIGKILL)
-    # .is_alive() will reap dead process
-    while any(p.is_alive() for p in pool._pool):
-        pass
-    # Get-lucky workaround: force releasing lock
-    try:
-        pool._inqueue._rlock.release()
-    except ValueError as e:
-        logging.error(e)
-    pool.terminate()
