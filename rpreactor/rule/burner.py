@@ -285,10 +285,18 @@ class RuleBurner(object):
         # TODO: optimize to keep rd_mol object in memory for reasonably small chunk (500?)
         for rindex, rsmarts in enumerate(self._rsmarts_list):
             rid = self._rid_list[rindex] if self._rid_list else None
-            rd_rule = self._init_rdkit_rule(rsmarts)  # WARNING: may throw exception
+            try:
+                rd_rule = self._init_rdkit_rule(rsmarts)  # WARNING: may throw exception
+            except RuleConversionError as error:
+                logging.error(f"Something went wrong converting rule '{rid}' (#{rindex}): {error}")
+                continue
             for cindex, inchi in enumerate(self._inchi_list):
                 cid = self._cid_list[cindex] if self._cid_list else None
-                rd_mol = self._init_rdkit_mol_from_inchi(inchi)  # WARNING: may throw exception
+                try:
+                    rd_mol = self._init_rdkit_mol_from_inchi(inchi)  # WARNING: may throw exception
+                except ChemConversionError as error:
+                    logging.error(f"Something went wrong converting chemical '{cid}' (#{cindex}): {error}")
+                    continue
                 yield rid, rd_rule, cid, rd_mol
 
     def compute(self, max_workers=1, timeout=60):
