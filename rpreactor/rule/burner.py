@@ -17,45 +17,23 @@ from rpreactor.chemical.standardizer import Standardizer
 from rpreactor.rule.exceptions import ChemConversionError, RuleMatchError, RuleFireError, RuleConversionError
 
 
-class RuleBurnerCore(object):
-    """Apply one rule on one chemical.""" 
+def _task_match(rd_rule, rd_mol):
+    """Check if a chemical can be fired by a rule according to left side."""
+    try:
+        for reactant in rd_rule.GetReactants():
+            if rd_mol.HasSubstructMatch(reactant, ):
+                return True
+        return False
+    except Exception as e:
+        raise RuleMatchError(e) from e
 
-    def __init__(self, rd_rule, rd_mol):
-        """Apply one rule on one chemical.
-        
-        Notice: no standardization is made on inputed chemicals and rules.
-        
-        :param  rd_rule:    RDKit reaction object, reactio rule to apply
-        :param  rd_mol:     RDKit mol object, chemical
-        """
-        # Internal settings
-        USE_CHIRALITY_IN_MATCH = False  # Default value anyway substrucre matching
-        # Input
-        self._rd_rule = rd_rule
-        self._rd_mol = rd_mol
-    
-    def match(self):
-        """Check if left reaction side match the chemical.
-        
-        returns:    bool, True if there is a match, else False
-        """
-        try:
-            for reactant in self._rd_rule.GetReactants():
-                if self._rd_mol.HasSubstructMatch(reactant, ):
-                    return True
-            return False
-        except Exception as e:
-            raise RuleMatchError(e) from e
-        
-    def fire(self):
-        """Fire the rule on the chemical.
-        
-        returns:    tuple of tuple, list of results for each possible application.
-        """
-        try:
-            return self._rd_rule.RunReactants((self._rd_mol,))
-        except Exception as e:
-            raise RuleFireError(e) from e
+
+def _task_fire(rd_rule, rd_mol):
+    """Apply a reaction a rule on a chemical."""
+    try:
+        return rd_rule.RunReactants((rd_mol,))
+    except Exception as e:
+        raise RuleFireError(e) from e
 
 
 class RuleBurner(object):
@@ -324,7 +302,7 @@ class RuleBurner(object):
                 task = {
                     "rid": rid,
                     "cid": cid,
-                    "future": pool.schedule(_task_fire, args=({'rd_rule': rd_rule, 'rd_mol': rd_mol},), timeout=timeout)
+                    "future": pool.schedule(_task_fire, kwargs={'rd_rule': rd_rule, 'rd_mol': rd_mol}, timeout=timeout)
                 }
                 all_running_tasks.append(task)
             # Gather the results
@@ -357,15 +335,3 @@ class RuleBurner(object):
                 finally:
                     json_str = json.dumps(result, indent=self._INDENT_JSON)
                     self._json.append(json_str)
-
-
-def _task_match(kwargs):
-    """Check if a chemical can be fired by a rule according to left side."""
-    w = RuleBurnerCore(**kwargs)
-    return w.match()
-
-
-def _task_fire(kwargs):
-    """Apply a reaction a rule on a chemical."""
-    r = RuleBurnerCore(**kwargs)
-    return r.fire()
