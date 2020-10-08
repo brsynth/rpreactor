@@ -14,18 +14,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from rpreactor.chemical.standardizer import Standardizer
-from rpreactor.rule.exceptions import ChemConversionError, RuleMatchError, RuleFireError, RuleConversionError
-
-
-def _task_match(rd_rule, rd_mol):
-    """Check if a chemical can be fired by a rule according to left side."""
-    try:
-        for reactant in rd_rule.GetReactants():
-            if rd_mol.HasSubstructMatch(reactant, ):
-                return True
-        return False
-    except Exception as e:
-        raise RuleMatchError(e) from e
+from rpreactor.rule.exceptions import ChemConversionError, RuleFireError, RuleConversionError
 
 
 def _task_fire(rd_rule, rd_mol):
@@ -56,7 +45,6 @@ class RuleBurner(object):
 
         # Internal settings
         self._INDENT_JSON = True
-        self._TRY_MATCH = False
 
         # Input
         self._rsmarts_list = rsmarts_list
@@ -64,8 +52,10 @@ class RuleBurner(object):
         self._inchi_list = inchi_list
         self._cid_list = cid_list
 
-        # Settings
-        self._try_match = self._TRY_MATCH  # TODO: add option for that
+        # Processed data
+        # Warning: watch out for memory limitation!
+        self._rd_chemicals_list = list()  # store for _gen_rules()
+        self._rd_rules_list = list()      # store for _gen_chemicals()
 
         # Sanitization
         self._with_hs = with_hs
@@ -75,10 +65,12 @@ class RuleBurner(object):
 
         # Check for consistency between depictions and IDs
         if self._rid_list and len(self._rsmarts_list) != len(self._rid_list):
-            logging.warning("ID and depiction rule lists have different size, compound IDs will be ignored")
+            logging.warning("provided ID and depiction rule lists have different size: IDs will be ignored")
+            self._rid_list = None
 
         if self._cid_list and len(self._inchi_list) != len(self._cid_list):
-            logging.warning("ID and depiction compounds lists have different size, rule IDs will be ignored")
+            logging.warning("provided ID and depiction compounds lists have different size: IDs will be ignored")
+            self._cid_list = None
 
         # Output
         self._json = list()
@@ -89,9 +81,6 @@ class RuleBurner(object):
             pdir = os.path.abspath(os.path.dirname(ofile))
             os.makedirs(pdir, exist_ok=True)
             self._ofile = os.path.abspath(ofile)
-
-        # A place to swim
-        self._pool = None
 
     def _standardize_chemical(self, rdmol, heavy=False):
         """Simple standardization of RDKit molecule."""
@@ -198,8 +187,6 @@ class RuleBurner(object):
         return list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
     def _jsonify(self, rid=None, cid=None,
-                 has_match=None, match_timed_out=None,
-                 match_exec_time=None, match_error=None,
                  fire_timed_out=None,
                  fire_exec_time=None, fire_error=None,
                  inchikeys_list=None, inchis_list=None, smiles_list=None):
@@ -207,10 +194,6 @@ class RuleBurner(object):
 
         :param      rid:                str, reaction rule ID
         :param      cid:                str, substrate ID
-        :param      has_match:          bool or None, True if there is match
-        :param      match_timed_out:    bool, True if timeout reached
-        :param      match_exec_time:    int, execution time for matching
-        :param      match_error:        str, error message if any, else None
         :param      fire_timed_out:     bool, True if timeout reached
         :param      fire_exec_time:     bool, execution time for firing
         :param      fire_error:         str, error message if any, else None
@@ -220,20 +203,8 @@ class RuleBurner(object):
         :returns    json_string:        JSON string
         """
         # General info
-        data = {
-            'rule_id': rid,
-            'substrate_id': cid,
-        }
-        # Match info
-        if self._try_match:
-            data['match'] = has_match
-            data['match_timed_out'] = match_timed_out
-            data['match_exec_time'] = match_exec_time
-            if match_error is not None:
-                data['match_error'] = match_error
+        data = {'rule_id': rid, 'substrate_id': cid, 'fire_timed_out': fire_timed_out, 'fire_exec_time': fire_exec_time}
         # Fire info
-        data['fire_timed_out'] = fire_timed_out
-        data['fire_exec_time'] = fire_exec_time
         if fire_error is not None:
             data['fire_error'] = fire_error
         if (inchikeys_list is not None) and (len(inchikeys_list) > 0):
@@ -280,24 +251,43 @@ class RuleBurner(object):
             raise ChemConversionError(e) from e
         return rd_mol
 
-    def _gen_couples_rule_mol(self):
-        """Yield couples of rule and molecule fully initialized objects."""
-        # TODO: optimize to keep rd_mol object in memory for reasonably small chunk (500?)
-        for rindex, rsmarts in enumerate(self._rsmarts_list):
-            rid = self._rid_list[rindex] if self._rid_list else None
-            try:
-                rd_rule = self._init_rdkit_rule(rsmarts)  # WARNING: may throw exception
-            except RuleConversionError as error:
-                logging.error(f"Something went wrong converting rule '{rid}' (#{rindex}): {error}")
-                continue
-            for cindex, inchi in enumerate(self._inchi_list):
-                cid = self._cid_list[cindex] if self._cid_list else None
+    def _gen_rules(self):
+        """Generator of fully initialized/standardized RDKit reaction objects (rules)."""
+        if self._rd_rules_list:
+            for x in self._rd_rules_list:
+                yield x
+        else:
+            logging.debug(f"Starting RDKit reaction object initialization for {len(self._rsmarts_list)} SMARTS. "
+                          "Will display progress every 1000 conversions.")
+            for rindex, rsmarts in enumerate(self._rsmarts_list):
+                rid = self._rid_list[rindex] if self._rid_list else f"rule#{rindex}"
+                if rindex % 1000 == 0:
+                    logging.debug(f"Working on rule #{rindex} ({rid})...")
                 try:
-                    rd_mol = self._init_rdkit_mol_from_inchi(inchi)  # WARNING: may throw exception
+                    rd_rule = self._init_rdkit_rule(rsmarts)
+                    self._rd_rules_list.append((rid, rd_rule))  # save it for later
+                    yield rid, rd_rule
+                except RuleConversionError as error:
+                    logging.error(f"Something went wrong converting rule '{rid}': {error}")
+
+    def _gen_chemicals(self):
+        """Generator of fully initialized/standardized RDKit molecule objects (chemicals)."""
+        if self._rd_chemicals_list:
+            for x in self._rd_chemicals_list:
+                yield x
+        else:
+            logging.debug(f"Starting RDKit chemical object initialization for {len(self._inchi_list)} InChI. "
+                          "Will display progress every 1000 conversions.")
+            for cindex, inchi in enumerate(self._inchi_list):
+                cid = self._cid_list[cindex] if self._cid_list else f"mol#{cindex}"
+                if cindex % 1000 == 0:
+                    logging.debug(f"Working on chemical #{cindex} ({cid})...")
+                try:
+                    rd_mol = self._init_rdkit_mol_from_inchi(inchi)
+                    self._rd_chemicals_list.append((cid, rd_mol))
+                    yield cid, rd_mol
                 except ChemConversionError as error:
-                    logging.error(f"Something went wrong converting chemical '{cid}' (#{cindex}): {error}")
-                    continue
-                yield rid, rd_rule, cid, rd_mol
+                    logging.error(f"Something went wrong converting chemical '{cid}': {error}")
 
     def compute(self, max_workers=1, timeout=60):
         """Apply all rules on all chemicals."""
@@ -305,41 +295,42 @@ class RuleBurner(object):
         # TODO: parralelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Submit all the tasks
+            # NB: it seems that pool.map does not avoid tasks to hold ressources (memory) until they are consumed
+            # when a generator is used as input; so we use pool.schedule and we explicitely store parameters
+            # (i.e. RDKit objects) for lisibility.
             all_running_tasks = []  # list of Future objects
-            for rid, rd_rule, cid, rd_mol in self._gen_couples_rule_mol():
-                task = {
-                    "rid": rid,
-                    "cid": cid,
-                    "future": pool.schedule(_task_fire, kwargs={'rd_rule': rd_rule, 'rd_mol': rd_mol}, timeout=timeout)
-                }
-                all_running_tasks.append(task)
+            for rid, rd_rule in self._gen_rules():
+                for cid, rd_mol in self._gen_chemicals():
+                    task = (rid, cid, pool.schedule(_task_fire, args=(rd_rule, rd_mol), timeout=timeout))
+                    all_running_tasks.append(task)
             # Gather the results
-            for task in all_running_tasks:
+            logging.debug(f"Found {len(all_running_tasks)} tasks. Will display progress every 1000 tasks.")
+            for i, (rid, cid, future) in enumerate(all_running_tasks):
+                if i % 1000 == 0:
+                    logging.debug(f"Working on task #{i} ({rid} on {cid})...")
                 result = {
-                    'rule_id': task["rid"],
-                    'substrate_id': task["cid"],
-                    'match': "DEPRECATED",
-                    'match_timed_out': "DEPRECATED",
-                    'match_exec_time': "DEPRECATED",
-                    'match_error': "DEPRECATED",
-                    'fire_timed_out': None,
+                    'rule_id': rid,
+                    'substrate_id': cid,
+                    'fire_timed_out': False,
                     'fire_exec_time': None,
-                    'fire_error': None,
+                    'fire_error': False,
                     'product_inchikeys': None,
                     'product_inchis': None,
                     'product_smiles': None,
                 }
                 try:
-                    ans = task['future'].result()
+                    ans = future.result()
                     rdmols, failed = self._standardize_results(ans)
                     result['product_inchikeys'], result['product_inchis'], result['product_smiles'] = self._handle_results(rdmols)
-                    result['fire_timed_out'] = False
                 except concurrent.futures.TimeoutError:
-                    logging.warning(f"Task {task['rid']} on {task['cid']} timed-out.")
+                    logging.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
                     result['fire_timed_out'] = True
                     # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
+                except RuleFireError as error:
+                    logging.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
+                    result['fire_error'] = True
                 except pebble.ProcessExpired as error:
-                    logging.critical(f"Task {task['rid']} on {task['cid']} crashed unexpectedly: {error}.")
+                    logging.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
                 finally:
                     json_str = json.dumps(result, indent=self._INDENT_JSON)
                     self._json.append(json_str)
