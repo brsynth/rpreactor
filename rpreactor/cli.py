@@ -23,11 +23,10 @@ def __cli():
         r = RuleBurner(
                 rsmarts_list=[args.rsmarts], inchi_list=[args.inchi],
                 rid_list=[args.rid], cid_list=[args.cid],
-                match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
-                ofile=args.ofile, compress=args.compress, 
+                ofile=args.ofile, compress=args.compress,
                 with_hs=args.with_hs, with_stereo=args.with_stereo
                 )
-        r.compute()
+        r.compute(timeout=args.fire_timeout)
         r.write_json()
 
     def infile_mode(args):
@@ -59,16 +58,14 @@ def __cli():
         r = RuleBurner(
                 rsmarts_list=rsmarts_list, inchi_list=inchi_list,
                 rid_list=rids_list, cid_list=cids_list,
-                match_timeout=args.match_timeout, fire_timeout=args.fire_timeout,
                 ofile=args.ofile, compress=args.compress,
                 with_hs=args.with_hs, with_stereo=args.with_stereo
                 )
-        r.compute()
+        r.compute(timeout=args.fire_timeout)
         r.write_json()
 
     parser = argparse.ArgumentParser(description=help)
-    parser.add_argument('--match_timeout', help='Rule matching timeout. Default: 1.', default=1, type=int)
-    parser.add_argument('--fire_timeout', help='Rule firing timeout. Default: 1.', default=1, type=int)
+    parser.add_argument('--fire_timeout', help='Rule firing timeout (seconds). Default: 60.', default=60, type=int)
     parser.add_argument('--ofile', help='Output file to store results. Default to STDOUT if none provided')
     parser.add_argument('--compress', action='store_true', help='Enable gzip compression (only when output to file).')
     parser.add_argument('--with_hs', help='Enable explicit Hs when sanitizing chemicals. Default to False.',
