@@ -54,8 +54,11 @@ class RuleBurner(object):
 
         # Processed data
         # Warning: watch out for memory limitation!
+        # See also: RuleBurner._gen_couple_rule_chemical
         self._rd_chemicals_list = list()  # store for _gen_rules()
         self._rd_rules_list = list()      # store for _gen_chemicals()
+        self._are_rd_rules_stored = True if len(rsmarts_list) < len(inchi_list) else False
+        self._are_rd_chemicals_stored = not self._are_rd_rules_stored
 
         # Sanitization
         self._with_hs = with_hs
@@ -265,7 +268,8 @@ class RuleBurner(object):
                     logging.debug(f"Working on rule #{rindex} ({rid})...")
                 try:
                     rd_rule = self._init_rdkit_rule(rsmarts)
-                    self._rd_rules_list.append((rid, rd_rule))  # save it for later
+                    if self._are_rd_rules_stored:
+                        self._rd_rules_list.append((rid, rd_rule))  # save it for later
                     yield rid, rd_rule
                 except RuleConversionError as error:
                     logging.error(f"Something went wrong converting rule '{rid}': {error}")
@@ -284,10 +288,30 @@ class RuleBurner(object):
                     logging.debug(f"Working on chemical #{cindex} ({cid})...")
                 try:
                     rd_mol = self._init_rdkit_mol_from_inchi(inchi)
-                    self._rd_chemicals_list.append((cid, rd_mol))
+                    if self._are_rd_chemicals_stored:
+                        self._rd_chemicals_list.append((cid, rd_mol))
                     yield cid, rd_mol
                 except ChemConversionError as error:
                     logging.error(f"Something went wrong converting chemical '{cid}': {error}")
+
+    def _gen_couple_rule_chemical(self):
+        """Generator over couples of fully initialized rules and chemicals."""
+        # NB: we would expect to saturate the RAM by storing both rules and chemicals in memory,
+        # so we try to limit memory usage while preserving performance: we store only the shortest sequence of objects
+        # (except if there is only one object) and we use it as the inner loop to avoid recomputing the same heavy tasks
+        # at each outer loop iteration. This does not mean that it is memory-safe to work on very big datasets,
+        # it is merely a hack for: "one vs. many" and "some vs. some" cases. For other situations, user will have to
+        # create several instances of RuleBurner and manage things on his own.
+        # NB: the RAM will probably get saturated for "one vs. many" cases but you should not swap. Have some faith
+        # in Python garbage collector.
+        if self._are_rd_chemicals_stored or self._rsmarts_list == 1:
+            for rid, rd_rule in self._gen_rules():
+                for cid, rd_mol in self._gen_chemicals():
+                    yield rid, rd_rule, cid, rd_mol
+        else:
+            for cid, rd_mol in self._gen_chemicals():
+                for rid, rd_rule in self._gen_rules():
+                    yield rid, rd_rule, cid, rd_mol
 
     def compute(self, max_workers=1, timeout=60):
         """Apply all rules on all chemicals."""
