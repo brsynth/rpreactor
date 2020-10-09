@@ -64,17 +64,18 @@ After a git clone:
 
 ```bash
 cd <repository>
-conda env create -f environment.yml
-conda activate dev_rpreactor
-conda develop -n dev_rpreactor .
+conda env create -f environment.yml -n <dev_env>
+conda activate <dev_env>
+conda develop -n <dev_env> .
 ```
 
 You may be prompted to install *conda-build* in your base environment (`conda install conda-build`).
+The default conda environment name will be `dev_rpreacor` if not specified by `-n <dev_env>`.
 
 Test your installation with:
 
 ```bash
-conda activate dev_rpreactor
+conda activate <dev_env>
 python -m rpreactor.cli -h
 ```
 
@@ -82,7 +83,7 @@ To uninstall:
 
 ```bash
 conda deactivate
-conda env remove -n dev_rpreactor
+conda env remove -n <dev_env>
 ```
 
 ### Test suite
