@@ -13,11 +13,13 @@ build:
   noarch: python
 
 requirements:
+  # Those are conda packages (not pip); the conda channel is specified at the CLI level and not in this file.
   host:
     - python
     - pip
   run:
     - python
+    - pebble=4.5
     - rdkit=2019.03.1.0
 
 test:

@@ -24,7 +24,7 @@ We strongly recommend you to use [conda package manager](https://docs.conda.io/e
 
 ```bash
 # installation in a new conda environment <myenv>
-conda create --name <myenv> --channel rdkit --channel brsynth rpreactor
+conda create --name <myenv> -c conda-forge -c brsynth rpreactor
 conda activate <myenv>
 ```
 
@@ -51,7 +51,7 @@ import rpreactor
 inchi = 'InChI=1/C3H6O3/c1-2(4)3(5)6/h2,4H,1H3,(H,5,6)'
 rsmarts = '([#8&v2:1](-[#6&v4:2](-[#6&v4:3](-[#8&v2:4]-[#1&v1:5])=[#8&v2:6])(-[#6&v4:7](-[#1&v1:8])(-[#1&v1:9])-[#1&v1:10])-[#1&v1:11])-[#1&v1:12])>>([#15&v5](=[#8&v2])(-[#8&v2]-[#1&v1])(-[#8&v2]-[#1&v1])-[#8&v2:1]-[#6&v4:2](-[#6&v4:3](-[#8&v2:4]-[#1&v1:5])=[#8&v2:6])(-[#6&v4:7](-[#1&v1:8])(-[#1&v1:9])-[#1&v1:10])-[#1&v1:11].[#7&v3](=[#6&v4]1:[#7&v3]:[#6&v4](-[#8&v2]-[#1&v1]):[#6&v4]2:[#7&v3]:[#6&v4](-[#1&v1]):[#7&v3](-[#6&v4]3(-[#1&v1])-[#8&v2]-[#6&v4](-[#6&v4](-[#8&v2]-[#15&v5](=[#8&v2])(-[#8&v2]-[#1&v1])-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1:12])(=[#8&v2])-[#8&v2]-[#1&v1])(-[#1&v1])-[#1&v1])(-[#1&v1])-[#6&v4](-[#8&v2]-[#1&v1])(-[#1&v1])-[#6&v4]-3(-[#8&v2]-[#1&v1])-[#1&v1]):[#6&v4]:2:[#7&v3]:1-[#1&v1])-[#1&v1])'
 
-o = rpreactor.RuleBurner(rsmarts_list=[rsmarts], inchi_list=[inchi], with_hs=True, match_timeout=1, fire_timeout=1)
+o = rpreactor.RuleBurner(rsmarts_list=[rsmarts], inchi_list=[inchi], with_hs=True)
 o.compute()
 res = json.loads('[' + ', '.join(o._json) + ']')
 ```
@@ -64,7 +64,7 @@ After a git clone:
 
 ```bash
 cd <repository>
-conda create --name dev_rpreactor --channel rdkit python=3.7 rdkit=2019.03.1.0
+conda env create -f environment.yml
 conda activate dev_rpreactor
 conda develop -n dev_rpreactor .
 ```
@@ -88,7 +88,6 @@ conda env remove -n dev_rpreactor
 ### Test suite
 
 ```bash
-conda install pytest
 cd <repository>
 pytest
 ```
@@ -102,7 +101,7 @@ If you want to check the build process locally:
 ```bash
 conda install conda-build
 cd <repository>
-conda build recipe --channel rdkit
+conda build recipe --channel conda-forge
 ```
 
 ### Develop with Docker

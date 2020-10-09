@@ -1,0 +1,9 @@
+name: dev_rpreactor
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.6|3.7
+  - rdkit=2019.03.1.0
+  - pebble=4.5
+  - pytest
