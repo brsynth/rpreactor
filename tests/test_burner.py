@@ -3,9 +3,8 @@ Test FireBurner class
 """
 
 import pytest
-import multiprocessing
 from rdkit import Chem
-from rpreactor.rule.burner import RuleBurner, RuleConversionError, ChemConversionError
+from rpreactor.rule.burner import RuleBurner
 
 
 # Data for tests
@@ -85,13 +84,6 @@ def test_standardize_results_1():
     assert tuple_index_failed == [1]
 
 
-def test_run_with_timeout():
-    rb = RuleBurner(rsmarts_list=[], inchi_list=[])
-    with pytest.raises(multiprocessing.context.TimeoutError):
-        rb._run_with_timeout(dummy_worker, None, timeout=0)
-    rb._run_with_timeout(dummy_worker, None, timeout=2)
-
-
 def test_jsonify():
     rb = RuleBurner(rsmarts_list=[], inchi_list=[])
     assert rb._jsonify(rid='RID', cid='CID').replace('\n', '') == """{ "rule_id": "RID", "substrate_id": "CID", "fire_timed_out": null, "fire_exec_time": null}"""
@@ -127,17 +119,15 @@ def test_handle_result():
 
 
 def test_compute():
-    # Wrong reaction depiction
-    rb = RuleBurner(rsmarts_list=['DUMMY'], inchi_list=[])
-    with pytest.raises(RuleConversionError):
-        rb.compute()
-    # Wrong chemical depiction
-    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=['DUMMY'])
-    with pytest.raises(ChemConversionError):
-        rb.compute()
-    # Timeout should be logged
-    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=[substate_inchi], fire_timeout=0)
+    # Wrong reaction depiction should be caught and logged by RuleBurner
+    rb = RuleBurner(rsmarts_list=['DUMMY'], inchi_list=[substate_inchi])
     rb.compute()
+    # Wrong chemical depiction should be caught and logged by RuleBurner
+    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=['DUMMY'])
+    rb.compute()
+    # Timeout should be logged
+    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=[substate_inchi])
+    rb.compute(timeout=0)
     assert ''.join(rb._json).find('"fire_timed_out": true')
     # OK
     rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=[substate_inchi])
