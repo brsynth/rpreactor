@@ -1,5 +1,10 @@
 # Release history
 
+## 0.8.0
+- fix: fix processes that hang
+- perf: small optimization of memory usage
+- refactor!: replace multiprocessing by pebble
+
 ## 0.7.0
 - feat: fusion project rpchemtools
 - fix: update build instructions to package sub-packages
