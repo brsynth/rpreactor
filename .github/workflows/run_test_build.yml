@@ -2,7 +2,7 @@ name: Build test suite (build + convert)
 
 on:
   push:
-    branches: [ master ]
+    branches: [ ci-test-build ]
 
 jobs:
   build:
