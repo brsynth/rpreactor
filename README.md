@@ -100,9 +100,15 @@ The process is automated with GitHub's Action.
 If you want to check the build process locally:
 
 ```bash
-conda install conda-build
+CONDA_BLD_PATH=<repository>/conda-bld
+mkdir -p ${CONDA_BLD_PATH} 
 cd <repository>
-conda build recipe --channel conda-forge
+
+conda env create -f recipe/conda_build_env.yaml -n <build_env>
+conda activate <build_env>
+conda build -c conda-forge --output-folder ${CONDA_BLD_PATH} recipe
+
+conda convert --platform osx-64 --platform linux-64 --platform win-64 --output-dir ${CONDA_BLD_PATH} ${CONDA_BLD_PATH}/*/rpreactor-*
 ```
 
 ### Develop with Docker
