@@ -1,0 +1,50 @@
+name: Publish
+
+on:
+  push:
+    branches: [ stable ]
+    tags: '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANACONDA_TOKEN: ${{secrets.ANACONDA_TOKEN}}
+      ANACONDA_USER: ${{secrets.ANACONDA_USER}}
+      ANACONDA_LABEL: main
+      CONDA_BLD_PATH: /tmp/conda-bld
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: conda-incubator/setup-miniconda@v1
+      with:
+        activate-environment: build_env
+        auto-update-conda: false
+        environment-file: recipe/conda_build_env.yaml
+        miniconda-version: "latest"
+        auto-activate-base: false
+    - name: Set up output folder
+      run: |
+        mkdir -p ${CONDA_BLD_PATH}
+    - name: Build conda package
+      shell: bash -l {0}
+      run: |
+        conda build --output-folder ${CONDA_BLD_PATH} recipe
+    - name: Convert to other platforms
+      shell: bash -l {0}
+      run: |
+        conda convert \
+          --platform osx-64 \
+          --platform linux-64 \
+          --platform win-64 \
+          --output-dir ${CONDA_BLD_PATH} \
+          ${CONDA_BLD_PATH}/*/rpreactor-*
+    - name: Upload to anaconda
+      shell: bash -l {0}
+      run: |
+        anaconda \
+          --token ${ANACONDA_TOKEN} \
+          upload \
+          --user ${ANACONDA_USER} \
+          --label ${ANACONDA_LABEL} \
+          ${CONDA_BLD_PATH}/*/rpreactor-*.tar.bz2

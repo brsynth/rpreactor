@@ -8,14 +8,12 @@ source:
   path: ..
 
 build:
-  # Build from the setup.py instructions (inherit its constraints)
+  number: 0
   script: {{ PYTHON }} -m pip install --no-deps --ignore-installed -vv .
-  noarch: python
 
 requirements:
-  # Those are conda packages (not pip); the conda channel is specified at the CLI level and not in this file.
   host:
-    - python
+    - python {{ python }}
     - pip
   run:
     - python
