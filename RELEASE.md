@@ -1,5 +1,8 @@
 # Release history
 
+## 0.8.1
+- ci: add github workflow for automated publication to anaconda
+
 ## 0.8.0
 - fix: fix processes that hang
 - perf: small optimization of memory usage
