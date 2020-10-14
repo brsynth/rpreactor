@@ -17,8 +17,8 @@ requirements:
     - pip
   run:
     - python
-    - pebble=4.5
-    - rdkit=2019.03.1.0
+    - pebble 4.5*
+    - rdkit >=2019
 
 test:
   source_files:

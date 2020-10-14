@@ -24,14 +24,14 @@ We strongly recommend you to use [conda package manager](https://docs.conda.io/e
 
 ```bash
 # installation in a new conda environment <myenv>
-conda create --name <myenv> -c conda-forge -c brsynth rpreactor
+conda create --name <myenv> -c conda-forge -c brsynth rdkit=2020 rpreactor
 conda activate <myenv>
 ```
 
 ```bash
 # installation in an already existing environment <myenv>
 conda activate <myenv>
-conda install --channel brsynth rpreactor
+conda install -c conda-forge -c brsynth rdkit=2020 rpreactor
 ``` 
 
 ## Usage
