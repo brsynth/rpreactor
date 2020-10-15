@@ -10,6 +10,10 @@ jobs:
       matrix:
         python-version: [3.6, 3.7, 3.8, 3.9]
         rdkit-version: [2019.03, 2020.03]
+        exclude:
+          # old RDKit do not support recent Python
+          - rdkit-version: 2019.03
+            python-version: [3.8, 3.9]
 
     steps:
     - uses: actions/checkout@v2
@@ -30,15 +34,15 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: (Re)install RDKit to a specific version
       shell: bash -l {0}
-      run: conda install -y -c conda-forge rdkit=${{ matrix.rdkit-version }}
+      run: conda install -y -c conda-forge python=${{ matrix.python-version }} rdkit=${{ matrix.rdkit-version }}
     - name: Test with pytest
       shell: bash -l {0}
       run: |
-        pytest --doctest-modules --junitxml=junit/test-results-${{ matrix.python-version }}.xml
+        pytest --doctest-modules --junitxml=junit/test-results-${{ matrix.python-version }}-${{ matrix.rdkit-version }}.xml
     - name: Upload pytest test results
       uses: actions/upload-artifact@v2
       with:
-        name: pytest-results-${{ matrix.python-version }}
-        path: junit/test-results-${{ matrix.python-version }}.xml
+        name: pytest-results-${{ matrix.python-version }}-${{ matrix.rdkit-version }}
+        path: junit/test-results-${{ matrix.python-version }}-${{ matrix.rdkit-version }}.xml
       # Use always() to always run this step to publish test results when there are test failures
       if: ${{ always() }}
