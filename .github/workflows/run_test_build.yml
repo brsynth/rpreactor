@@ -3,10 +3,10 @@ name: Build test suite (build + convert)
 on:
   push:
     branches: [ master ]
-    paths:
-      - '!RELEASE.md'
-      - '!LICENSE'
-      - '!README.md'
+    paths-ignore:
+      - 'LICENSE'
+      - 'README.md'
+      - 'RELEASE.md'
   pull_request:
     branches: [ master ]
 
