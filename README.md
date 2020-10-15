@@ -1,6 +1,5 @@
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/version.svg)](https://anaconda.org/brsynth/rpreactor)
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/license.svg)](https://anaconda.org/brsynth/rpreactor)
-[![GitHub Action (flake8 + pytest)](https://github.com/brsynth/rpreactor/workflows/Test%20suite%20(flake8%20+%20pytest)/badge.svg)](https://github.com/brsynth/rpreactor/actions?query=workflow%3A%22Test+suite+%28flake8+%2B+pytest%29%22)
 
 # rpreactor
 
@@ -90,7 +89,7 @@ conda env remove -n <dev_env>
 
 ```bash
 cd <repository>
-pytest
+python -m pytest --doctest-modules 
 ```
 
 ### Build and deployment
