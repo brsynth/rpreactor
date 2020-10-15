@@ -1,6 +1,11 @@
 name: Python test suite (flake8 + pytest)
 
-on: [push]
+on:
+  push:
+    paths:
+      - '!RELEASE.md'
+      - '!LICENSE'
+      - '!README.md'
 
 jobs:
   flake8:

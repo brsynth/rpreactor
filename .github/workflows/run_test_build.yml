@@ -3,6 +3,10 @@ name: Build test suite (build + convert)
 on:
   push:
     branches: [ master ]
+    paths:
+      - '!RELEASE.md'
+      - '!LICENSE'
+      - '!README.md'
 
 jobs:
   build:

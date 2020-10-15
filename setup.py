@@ -15,7 +15,7 @@ setup(
     author_email='thomas.duigou@inrae.fr',
     url='https://github.com/brsynth/rpreactor',
     packages=find_packages(),
-    keywords='rpchemtools',
+    keywords=['rpreactor'],
     classifiers=[
         'Topic :: Scientific/Engineering',
     ]
