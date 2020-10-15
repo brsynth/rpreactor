@@ -1,6 +1,5 @@
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/version.svg)](https://anaconda.org/brsynth/rpreactor)
 [![Anaconda-Server Badge](https://anaconda.org/brsynth/rpreactor/badges/license.svg)](https://anaconda.org/brsynth/rpreactor)
-[![GitHub Action (flake8 + pytest)](https://github.com/brsynth/rpreactor/workflows/Test%20suite%20(flake8%20+%20pytest)/badge.svg)](https://github.com/brsynth/rpreactor/actions?query=workflow%3A%22Test+suite+%28flake8+%2B+pytest%29%22)
 
 # rpreactor
 
@@ -18,20 +17,20 @@ If you are interested by *rpreactor* you may also be interested in:
 
 ## Installation
 
-**Important**: rpreactor needs python version prior to 3.8 and rdkit version 2019.03.1.0.
+**Important**: rpreactor works with Python >=3.6 and was tested with rdkit 2020.03*.
 
 We strongly recommend you to use [conda package manager](https://docs.conda.io/en/latest/), and to follow those steps: 
 
 ```bash
 # installation in a new conda environment <myenv>
-conda create --name <myenv> -c conda-forge -c brsynth rpreactor
+conda create --name <myenv> -c conda-forge -c brsynth rdkit=2020.03 rpreactor
 conda activate <myenv>
 ```
 
 ```bash
 # installation in an already existing environment <myenv>
 conda activate <myenv>
-conda install --channel brsynth rpreactor
+conda install -c conda-forge -c brsynth rdkit=2020.03 rpreactor
 ``` 
 
 ## Usage
@@ -90,7 +89,7 @@ conda env remove -n <dev_env>
 
 ```bash
 cd <repository>
-pytest
+python -m pytest --doctest-modules 
 ```
 
 ### Build and deployment

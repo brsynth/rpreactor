@@ -9,17 +9,14 @@ setup(
     name='rpreactor',
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    description='Apply reaction rules and parse results',
+    description='Handle biochemical reaction rules.',
     license='MIT',
     author='Thomas Duigou',
     author_email='thomas.duigou@inrae.fr',
-    url='https://github.com/tduigou/rpreactor',
+    url='https://github.com/brsynth/rpreactor',
     packages=find_packages(),
-    python_requires='>=3.6, <3.8',
-    keywords='rpchemtools',
+    keywords=['rpreactor'],
     classifiers=[
         'Topic :: Scientific/Engineering',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
     ]
 )
