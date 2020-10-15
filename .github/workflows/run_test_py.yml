@@ -3,7 +3,23 @@ name: Python test suite (flake8 + pytest)
 on: [push]
 
 jobs:
-  build-linux:
+  flake8:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        # stop if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  pytest:
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 5
@@ -13,8 +29,9 @@ jobs:
         exclude:
           # old RDKit do not support recent Python
           - rdkit-version: 2019.03
-            python-version: [3.8, 3.9]
-
+            python-version: 3.8
+          - rdkit-version: 2019.03
+            python-version: 3.9
     steps:
     - uses: actions/checkout@v2
     - uses: conda-incubator/setup-miniconda@v1
@@ -24,14 +41,6 @@ jobs:
         activate-environment: dev_rpreactor
         environment-file: environment.yml
         auto-activate-base: false
-    - name: Lint with flake8
-      shell: bash -l {0}
-      run: |
-        conda install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: (Re)install RDKit to a specific version
       shell: bash -l {0}
       run: conda install -y -c conda-forge python=${{ matrix.python-version }} rdkit=${{ matrix.rdkit-version }}
