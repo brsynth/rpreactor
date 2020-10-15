@@ -19,7 +19,7 @@ jobs:
     - uses: conda-incubator/setup-miniconda@v1
       with:
         activate-environment: build_env
-        auto-update-conda: false
+        auto-update-conda: true
         environment-file: recipe/conda_build_env.yaml
         miniconda-version: "latest"
         auto-activate-base: false
