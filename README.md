@@ -11,9 +11,10 @@ It relies extensively on [RDKit](https://rdkit.org/) to handle chemicals and rea
 
 Please submit your questions or any new issue you may encounter with *rpreactor* using [GitHub's issue system](https://github.com/brsynth/RetroPathRL/issues).
 
-If you are interested by *rpreactor* you may also be interested in:
+If you are interested in *rpreactor* you may also be interested in:
 * [Reactor](https://chemaxon.com/products/reactor): ChemAxon's "*A high performance virtual synthesis engine*"
 * [ATLAS](https://lcsb-databases.epfl.ch/pathways/atlas/): "*A repository of all possible biochemical reactions for synthetic biology and metabolic engineering studies*" by our friends from the [LCSB](https://www.epfl.ch/labs/lcsb/)
+* [MINE](https://github.com/tyo-nu/MINE-Database): "*Metabolic In silico Network Expansion (MINE) Database Construction and DB Logic*" by our friends from the [Tyo Lab](https://tyolab.northwestern.edu/)
 
 ## Installation
 
@@ -90,6 +91,15 @@ conda env remove -n <dev_env>
 ```bash
 cd <repository>
 python -m pytest --doctest-modules 
+```
+
+### Build the documentation
+
+To build a local Sphinx HTML documentation at `<repository>/docs/_build/html/index.html`:
+
+```
+cd <repository>/docs
+make html
 ```
 
 ### Build and deployment
