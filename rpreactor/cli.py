@@ -116,7 +116,11 @@ def __cli():
 
     # Execute right mode
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except AttributeError:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
