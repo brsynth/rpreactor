@@ -26,22 +26,22 @@ def _task_fire(rd_rule, rd_mol):
 
 
 class RuleBurner(object):
-    """Apply any number of rules on any number of compounds."""
+    """Apply any number of rules on any number of compounds.
+
+    :param  rsmarts_list:   list of reaction rule SMARTS
+    :param  inchi_list:     list of inchis
+    :param  rid_list:       list of reaction rule IDs
+    :param  cid_list:       list of chemical IDs
+    :param  ofile:          str, Output file to store results
+    :param  compress:       bool, enable gzip compression on output
+    :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
+    :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
+    """
 
     def __init__(
             self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None,
             ofile=None, compress=False, with_hs=False, with_stereo=False):
-        """Setting up everything needed for behavor decisions and firing rules.
-
-        :param  rsmarts_list:   list of reaction rule SMARTS
-        :param  inchi_list:     list of inchis
-        :param  rid_list:       list of reaction rule IDs
-        :param  cid_list:       list of chemical IDs
-        :param  ofile:          str, Output file to store results
-        :param  compress:       bool, enable gzip compression on output
-        :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
-        :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
-        """
+        """Setting up everything needed for behavor decisions and firing rules."""
 
         # Internal settings
         self._INDENT_JSON = True
