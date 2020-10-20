@@ -26,22 +26,22 @@ def _task_fire(rd_rule, rd_mol):
 
 
 class RuleBurner(object):
-    """Apply any number of rules on any number of compounds."""
+    """Apply any number of rules on any number of compounds.
+
+    :param  rsmarts_list:   list of reaction rule SMARTS
+    :param  inchi_list:     list of inchis
+    :param  rid_list:       list of reaction rule IDs
+    :param  cid_list:       list of chemical IDs
+    :param  ofile:          str, Output file to store results
+    :param  compress:       bool, enable gzip compression on output
+    :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
+    :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
+    """
 
     def __init__(
             self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None,
             ofile=None, compress=False, with_hs=False, with_stereo=False):
-        """Setting up everything needed for behavor decisions and firing rules.
-
-        :param  rsmarts_list:   list of reaction rule SMARTS
-        :param  inchi_list:     list of inchis
-        :param  rid_list:       list of reaction rule IDs
-        :param  cid_list:       list of chemical IDs
-        :param  ofile:          str, Output file to store results
-        :param  compress:       bool, enable gzip compression on output
-        :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
-        :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
-        """
+        """Setting up everything needed for behavior decisions and firing rules."""
 
         # Internal settings
         self._INDENT_JSON = True
@@ -316,10 +316,10 @@ class RuleBurner(object):
     def compute(self, max_workers=1, timeout=60):
         """Apply all rules on all chemicals."""
         # TODO: should yield the results to be memory-efficient instead of storing in self._json
-        # TODO: parralelization will be useless, the time-consuming part is rule and chemical initialization
+        # TODO: parallelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Submit all the tasks
-            # NB: it seems that pool.map does not avoid tasks to hold ressources (memory) until they are consumed
+            # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
             # when a generator is used as input; so we use pool.schedule and we explicitely store parameters
             # (i.e. RDKit objects) for lisibility.
             all_running_tasks = []  # list of Future objects
