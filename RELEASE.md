@@ -1,17 +1,13 @@
 # Release history
 
-## 0.8.1
-- ci: add github workflow for automated publication to anaconda
-
-## 0.8.0
-- fix: fix processes that hang
-- perf: small optimization of memory usage
+## next release
+- docs: sphinx documentation is available
+- ci: package publication is automated by github workflows
+- fix: processes don't hang anymore!
 - refactor!: replace multiprocessing by pebble
-
-## 0.7.0
-- feat: fusion project rpchemtools
-- fix: update build instructions to package sub-packages
+- perf: optimization of memory usage
 - refactor!: hide private methods
+- feat: merge rpchemtools into rpreactor
 
 ## 0.6.2
 - docs: install instructions update
