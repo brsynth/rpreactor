@@ -3,6 +3,7 @@ Test FireBurner class
 """
 
 import pytest
+import logging
 from rdkit import Chem
 from rpreactor.rule.burner import RuleBurner
 
@@ -84,11 +85,6 @@ def test_standardize_results_1():
     assert tuple_index_failed == [1]
 
 
-def test_jsonify():
-    rb = RuleBurner(rsmarts_list=[], inchi_list=[])
-    assert rb._jsonify(rid='RID', cid='CID').replace('\n', '') == """{ "rule_id": "RID", "substrate_id": "CID", "fire_timed_out": null, "fire_exec_time": null}"""
-
-
 def test_handle_result():
     tuple_raw = (
             Chem.MolFromSmiles('[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C]([H])([H])[H]'),
@@ -117,21 +113,38 @@ def test_handle_result():
     rdmol = Chem.AddHs(rdmol)
     assert Chem.MolToSmiles(rdmol, allHsExplicit=True) == '[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]'
 
+@pytest.mark.parametrize("smarts,inchi,expected_inchi",
+                         [(reaction_smarts, substate_inchi, ['InChI=1S/C3H7O6P/c1-2(3(4)5)9-10(6,7)8/h2H,1H3,(H,4,5)(H2,6,7,8)', 'InChI=1S/C10H15N5O11P2/c11-10-13-7-4(8(18)14-10)12-2-15(7)9-6(17)5(16)3(25-9)1-24-28(22,23)26-27(19,20)21/h2-3,5-6,9,16-17H,1H2,(H,22,23)(H2,19,20,21)(H3,11,13,14,18)'])
+                          ])
+def test_compute(smarts, inchi, expected_inchi):
+    # Things that are expected to return results
+    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=[substate_inchi])
+    result = [x for x in rb.compute()][0]
+    assert all(x in result for x in ['rule_id', 'substrate_id', 'product_inchikeys', 'product_inchis', 'product_smiles']), result
+    assert all(x in expected_inchi for x in result['product_inchis']), result
 
-def test_compute():
+
+def test_compute_wrong_reaction(caplog):
     # Wrong reaction depiction should be caught and logged by RuleBurner
-    rb = RuleBurner(rsmarts_list=['DUMMY'], inchi_list=[substate_inchi])
-    rb.compute()
-    # Wrong chemical depiction should be caught and logged by RuleBurner
-    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=['DUMMY'])
-    rb.compute()
-    # Timeout should be logged
-    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=[substate_inchi])
-    rb.compute(timeout=0)
-    assert ''.join(rb._json).find('"fire_timed_out": true')
-    # OK
-    rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=[substate_inchi])
-    rb.compute()
-    assert ''.join(rb._json).find('InChI=1S/C3H7O6P/c1-2(3(4)5)9-10(6,7)8/h2H,1H3,(H,4,5)(H2,6,7,8)')
-    assert ''.join(rb._json).find('InChI=1S/C10H15N5O11P2/c11-10-13-7-4(8(18)14-10)12-2-15(7)9-6(17)5(16)3(25-9)1-24-28(22,23)26-27(19,20)21/h2-3,5-6,9,16-17H,1H2,(H,22,23)(H2,19,20,21)(H3,11,13,14,18)')
+    with caplog.at_level(logging.ERROR):
+        rb = RuleBurner(rsmarts_list=['DUMMY'], inchi_list=[substate_inchi])
+        result = [x for x in rb.compute()]
+    assert "RULE-CONVERSION-ERROR" in caplog.text, (result, caplog.text)
 
+
+def test_compute_wrong_chemical(caplog):
+    # Wrong chemical depiction should be caught and logged by RuleBurner
+    with caplog.at_level(logging.ERROR):
+        rb = RuleBurner(rsmarts_list=[reaction_smarts], inchi_list=['DUMMY'])
+        result = [x for x in rb.compute()]
+    assert "CHEM-CONVERSION-ERROR" in caplog.text, (result, caplog.text)
+
+
+def test_compute_timeout(caplog):
+    # Timeout should be logged
+    rsmarts = "([#6&v4:1](=[#6&v4:2](-[#6&v4:3])-[#6&v4:4](-[#6&v4:5](-[#6&v4:6](=[#6&v4:7](-[#6&v4:8])-[#6&v4:9](-[#6&v4:10](-[#6&v4:11](=[#6&v4:12](-[#6&v4:13])-[#6&v4:14](-[#6&v4:15](-[#6&v4:16](=[#6&v4:17](-[#6&v4:18])-[#6&v4:19](-[#6&v4:20](-[#6&v4:21](=[#6&v4:22](-[#6&v4:23])-[#6&v4:24](-[#6&v4:25](-[#6&v4:26](=[#6&v4:27](-[#6&v4:28])-[#6&v4:29](-[#6&v4:30](-[#6&v4:31](=[#6&v4:32])-[#1&v1:33])(-[#1&v1:34])-[#1&v1:35])(-[#1&v1:36])-[#1&v1:37])-[#1&v1:38])(-[#1&v1:39])-[#1&v1:40])(-[#1&v1:41])-[#1&v1:42])-[#1&v1:43])(-[#1&v1:44])-[#1&v1:45])(-[#1&v1:46])-[#1&v1:47])-[#1&v1:48])(-[#1&v1:49])-[#1&v1:50])(-[#1&v1:51])-[#1&v1:52])-[#1&v1:53])(-[#1&v1:54])-[#1&v1:55])(-[#1&v1:56])-[#1&v1:57])-[#1&v1:58])(-[#1&v1:59])-[#1&v1:60])(-[#1&v1:61])-[#1&v1:62])(-[#6&v4:63](-[#6&v4:64](-[#6&v4:65](=[#6&v4:66](-[#6&v4:67](-[#6&v4:68](-[#6&v4:69](=[#6&v4:70](-[#6&v4:71](-[#6&v4:72](-[#6&v4:73](=[#6&v4:74](-[#6&v4:75](-[#6&v4:76](-[#6&v4:77](=[#6&v4:78](-[#6&v4:79](-[#6&v4:80](-[#6&v4:81](=[#6&v4:82](-[#6&v4:83](-[#8&v2:84]-[#15&v5:85])(-[#1&v1:86])-[#1&v1:87])-[#1&v1:88])-[#6&v4:89])(-[#1&v1:90])-[#1&v1:91])(-[#1&v1:92])-[#1&v1:93])-[#1&v1:94])-[#6&v4:95])(-[#1&v1:96])-[#1&v1:97])(-[#1&v1:98])-[#1&v1:99])-[#1&v1:100])-[#6&v4:101])(-[#1&v1:102])-[#1&v1:103])(-[#1&v1:104])-[#1&v1:105])-[#1&v1:106])-[#6&v4:107])(-[#1&v1:108])-[#1&v1:109])(-[#1&v1:110])-[#1&v1:111])-[#1&v1:112])-[#6&v4:113])(-[#1&v1:114])-[#1&v1:115])(-[#1&v1:116])-[#1&v1:117])-[#1&v1:118])>>([#15&v5:85]-[#8&v2:84]-[#6&v4:83](-[#6&v4:29](-[#6&v4:27](=[#6&v4:26](-[#1&v1:38])-[#1&v1])-[#6&v4:28])(-[#1&v1:36])-[#1&v1:37])(-[#1&v1:86])-[#1&v1:87].[#6&v4:30](-[#6&v4:31](=[#6&v4:32])-[#1&v1:33])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:34])-[#1&v1:35].[#6&v4:82](=[#6&v4:81](-[#6&v4:89])-[#6&v4:80](-[#6&v4:79](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:92])-[#1&v1:93])(-[#1&v1:90])-[#1&v1:91])(-[#1&v1:88])-[#1&v1].[#6&v4:78](=[#6&v4:77](-[#6&v4:95])-[#6&v4:76](-[#6&v4:75](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:98])-[#1&v1:99])(-[#1&v1:96])-[#1&v1:97])(-[#1&v1:94])-[#1&v1].[#6&v4:74](=[#6&v4:73](-[#6&v4:101])-[#6&v4:72](-[#6&v4:71](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:104])-[#1&v1:105])(-[#1&v1:102])-[#1&v1:103])(-[#1&v1:100])-[#1&v1].[#6&v4:70](=[#6&v4:69](-[#6&v4:107])-[#6&v4:68](-[#6&v4:67](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:110])-[#1&v1:111])(-[#1&v1:108])-[#1&v1:109])(-[#1&v1:106])-[#1&v1].[#6&v4:66](=[#6&v4:65](-[#6&v4:113])-[#6&v4:64](-[#6&v4:63](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:116])-[#1&v1:117])(-[#1&v1:114])-[#1&v1:115])(-[#1&v1:112])-[#1&v1].[#6&v4:1](=[#6&v4:2](-[#6&v4:3])-[#6&v4:4](-[#6&v4:5](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:59])-[#1&v1:60])(-[#1&v1:61])-[#1&v1:62])(-[#1&v1:118])-[#1&v1].[#6&v4:6](=[#6&v4:7](-[#6&v4:8])-[#6&v4:9](-[#6&v4:10](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:54])-[#1&v1:55])(-[#1&v1:56])-[#1&v1:57])(-[#1&v1:58])-[#1&v1].[#6&v4:11](=[#6&v4:12](-[#6&v4:13])-[#6&v4:14](-[#6&v4:15](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:49])-[#1&v1:50])(-[#1&v1:51])-[#1&v1:52])(-[#1&v1:53])-[#1&v1].[#6&v4:16](=[#6&v4:17](-[#6&v4:18])-[#6&v4:19](-[#6&v4:20](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:44])-[#1&v1:45])(-[#1&v1:46])-[#1&v1:47])(-[#1&v1:48])-[#1&v1].[#6&v4:21](=[#6&v4:22](-[#6&v4:23])-[#6&v4:24](-[#6&v4:25](-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1])(=[#8&v2])-[#8&v2]-[#1&v1])=[#8&v2])(-[#1&v1:39])-[#1&v1:40])(-[#1&v1:41])-[#1&v1:42])(-[#1&v1:43])-[#1&v1])"
+    inchi = "InChI=1S/C70H116O7P2/c1-57(2)29-16-30-58(3)31-17-32-59(4)33-18-34-60(5)35-19-36-61(6)37-20-38-62(7)39-21-40-63(8)41-22-42-64(9)43-23-44-65(10)45-24-46-66(11)47-25-48-67(12)49-26-50-68(13)51-27-52-69(14)53-28-54-70(15)55-56-76-79(74,75)77-78(71,72)73/h29,31,33,35,37,39,41,43,45,47,49,51,53,55H,16-28,30,32,34,36,38,40,42,44,46,48,50,52,54,56H2,1-15H3,(H,74,75)(H2,71,72,73)"
+    with caplog.at_level(logging.WARNING):
+        rb = RuleBurner(rsmarts_list=[rsmarts], inchi_list=[inchi], with_hs=True)
+        result = [x for x in rb.compute(timeout=0.1)]
+    assert "timed-out" in caplog.text, (result, caplog.text)
