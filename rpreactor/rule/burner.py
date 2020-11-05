@@ -2,10 +2,6 @@
 Core code for firing rules
 """
 
-import os
-import sys
-import gzip
-import json
 import concurrent.futures
 import logging
 
@@ -32,19 +28,12 @@ class RuleBurner(object):
     :param  inchi_list:     list of inchis
     :param  rid_list:       list of reaction rule IDs
     :param  cid_list:       list of chemical IDs
-    :param  ofile:          str, Output file to store results
-    :param  compress:       bool, enable gzip compression on output
     :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
     :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
     """
 
-    def __init__(
-            self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None,
-            ofile=None, compress=False, with_hs=False, with_stereo=False):
+    def __init__( self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
-
-        # Internal settings
-        self._INDENT_JSON = True
 
         # Input
         self._rsmarts_list = rsmarts_list
@@ -74,16 +63,6 @@ class RuleBurner(object):
         if self._cid_list and len(self._inchi_list) != len(self._cid_list):
             logging.warning("provided ID and depiction compounds lists have different size: IDs will be ignored")
             self._cid_list = None
-
-        # Output
-        self._json = list()
-        self._compress = compress
-        if not ofile:
-            self._ofile = None
-        else:
-            pdir = os.path.abspath(os.path.dirname(ofile))
-            os.makedirs(pdir, exist_ok=True)
-            self._ofile = os.path.abspath(ofile)
 
     def _standardize_chemical(self, rdmol, heavy=False):
         """Simple standardization of RDKit molecule."""
@@ -189,53 +168,6 @@ class RuleBurner(object):
                 logging.warning("{}".format(e))
         return list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
-    def _jsonify(self, rid=None, cid=None,
-                 fire_timed_out=None,
-                 fire_exec_time=None, fire_error=None,
-                 inchikeys_list=None, inchis_list=None, smiles_list=None):
-        """Return the results as a JSON string.
-
-        :param      rid:                str, reaction rule ID
-        :param      cid:                str, substrate ID
-        :param      fire_timed_out:     bool, True if timeout reached
-        :param      fire_exec_time:     bool, execution time for firing
-        :param      fire_error:         str, error message if any, else None
-        :param      inchikeys_list:     list of list, Inchikeys of products
-        :param      inchis_list:        list of list, Inchis of products
-        :param      smiles_list:        list of list, SMILES of products
-        :returns    json_string:        JSON string
-        """
-        # General info
-        data = {'rule_id': rid, 'substrate_id': cid, 'fire_timed_out': fire_timed_out, 'fire_exec_time': fire_exec_time}
-        # Fire info
-        if fire_error is not None:
-            data['fire_error'] = fire_error
-        if (inchikeys_list is not None) and (len(inchikeys_list) > 0):
-            data['product_inchikeys'] = inchikeys_list
-            data['product_inchis'] = inchis_list
-            data['product_smiles'] = smiles_list
-
-        return json.dumps(obj=data, indent=self._INDENT_JSON)
-
-    def write_json(self):
-        """Write the JSON string."""
-        # Handling file handler
-        if self._ofile:
-            if self._compress:
-                ofh = gzip.open(self._ofile, 'wb', compresslevel=9)
-            else:
-                ofh = open(self._ofile, 'w')
-        else:
-            ofh = sys.stdout
-        # Big string
-        content = '[\n' + ','.join(self._json) + '\n]' + '\n'
-        # Handling compression
-        if self._ofile and self._compress:
-            ofh.write(content.encode())
-        else:
-            ofh.write(content)
-        ofh.close()
-
     def _init_rdkit_rule(self, rsmarts):
         """Return RDKit reaction object."""
         try:
@@ -314,8 +246,7 @@ class RuleBurner(object):
                     yield rid, rd_rule, cid, rd_mol
 
     def compute(self, max_workers=1, timeout=60):
-        """Apply all rules on all chemicals."""
-        # TODO: should yield the results to be memory-efficient instead of storing in self._json
+        """Apply all rules on all chemicals and returns a generator over the results."""
         # TODO: parallelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Submit all the tasks
@@ -335,9 +266,6 @@ class RuleBurner(object):
                 result = {
                     'rule_id': rid,
                     'substrate_id': cid,
-                    'fire_timed_out': False,
-                    'fire_exec_time': None,
-                    'fire_error': False,
                     'product_inchikeys': None,
                     'product_inchis': None,
                     'product_smiles': None,
@@ -346,15 +274,11 @@ class RuleBurner(object):
                     ans = future.result()
                     rdmols, failed = self._standardize_results(ans)
                     result['product_inchikeys'], result['product_inchis'], result['product_smiles'] = self._handle_results(rdmols)
+                    yield result
                 except concurrent.futures.TimeoutError:
                     logging.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
-                    result['fire_timed_out'] = True
                     # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
                 except RuleFireError as error:
                     logging.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
-                    result['fire_error'] = True
                 except pebble.ProcessExpired as error:
                     logging.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
-                finally:
-                    json_str = json.dumps(result, indent=self._INDENT_JSON)
-                    self._json.append(json_str)
