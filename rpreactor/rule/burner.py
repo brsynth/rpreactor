@@ -251,8 +251,8 @@ class RuleBurner(object):
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Submit all the tasks
             # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
-            # when a generator is used as input; so we use pool.schedule and we explicitely store parameters
-            # (i.e. RDKit objects) for lisibility.
+            # when a generator is used as input; so we use pool.schedule and we explicitly store parameters
+            # (i.e. RDKit objects) for readability.
             all_running_tasks = []  # list of Future objects
             for rid, rd_rule in self._gen_rules():
                 for cid, rd_mol in self._gen_chemicals():
