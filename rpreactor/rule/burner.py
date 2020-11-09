@@ -13,14 +13,6 @@ from rpreactor.chemical.standardizer import Standardizer
 from rpreactor.rule.exceptions import ChemConversionError, RuleFireError, RuleConversionError
 
 
-def _task_fire(rd_rule, rd_mol):
-    """Apply a reaction a rule on a chemical."""
-    try:
-        return rd_rule.RunReactants((rd_mol,))
-    except Exception as e:
-        raise RuleFireError(e) from e
-
-
 class RuleBurner(object):
     """Apply any number of rules on any number of compounds.
 
@@ -32,7 +24,7 @@ class RuleBurner(object):
     :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
     """
 
-    def __init__( self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None, with_hs=False, with_stereo=False):
+    def __init__(self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
 
         # Input
@@ -64,15 +56,30 @@ class RuleBurner(object):
             logging.warning("provided ID and depiction compounds lists have different size: IDs will be ignored")
             self._cid_list = None
 
-    def _standardize_chemical(self, rdmol, heavy=False):
+    @staticmethod
+    def _task_fire(rd_rule, rd_mol):
+        """Apply one reaction rule on one chemical.
+
+        We do not trust the task to terminate by itself, that's why we put it in a separate process that we can kill if
+        need be.
+        """
+        try:
+            ans = rd_rule.RunReactants((rd_mol,))
+            rdmols, failed = RuleBurner._standardize_results(ans)
+            return RuleBurner._handle_results(rdmols)
+        except Exception as e:
+            raise RuleFireError(e) from e
+
+    @staticmethod
+    def _standardize_chemical(rdmol, heavy=False):
         """Simple standardization of RDKit molecule."""
         params = {
             'OP_REMOVE_ISOTOPE': False,
             'OP_NEUTRALISE_CHARGE': False,
-            'OP_REMOVE_STEREO': not self._with_stereo,
+            'OP_REMOVE_STEREO': True, #not self._with_stereo, TODO
             'OP_COMMUTE_INCHI': True,
             'OP_KEEP_BIGGEST': False,
-            'OP_ADD_HYDROGEN': self._with_hs,
+            'OP_ADD_HYDROGEN': True, #self._with_hs, TODO
             'OP_KEKULIZE': False,
             'OP_NEUTRALISE_CHARGE_LATE': True
         }
@@ -82,7 +89,8 @@ class RuleBurner(object):
             params['OP_KEEP_BIGGEST'] = True
         return Standardizer(sequence_fun='sequence_tunable', params=params).compute(rdmol)
 
-    def _standardize_results(self, tuple_tuple_rdmol):
+    @staticmethod
+    def _standardize_results(tuple_tuple_rdmol):
         """Perform sanitization and remove duplicates from reaction rule results.
 
         :param      tuple_tuple_rdmol:      tuple of tuple of RDKit Mol
@@ -100,7 +108,7 @@ class RuleBurner(object):
                 # Standardize
                 for rdmol in tuple_rdmol:
                     for rd_frag in Chem.GetMolFrags(rdmol, asMols=True, sanitizeFrags=False):
-                        list_std.append(self._standardize_chemical(rd_frag))
+                        list_std.append(RuleBurner._standardize_chemical(rd_frag))
                 # Get InChIKey
                 for rdmol in list_std:
                     inchikey = Chem.MolToInchiKey(rdmol)
@@ -181,7 +189,7 @@ class RuleBurner(object):
         """Return standardized RDKit molecule object."""
         try:
             rd_mol = Chem.MolFromInchi(inchi, sanitize=False)  # important: Sanitize = False
-            rd_mol = self._standardize_chemical(rd_mol, heavy=True)
+            rd_mol = RuleBurner._standardize_chemical(rd_mol, heavy=True)
         except Exception as e:
             raise ChemConversionError(e) from e
         return rd_mol
@@ -256,24 +264,22 @@ class RuleBurner(object):
             all_running_tasks = []  # list of Future objects
             for rid, rd_rule in self._gen_rules():
                 for cid, rd_mol in self._gen_chemicals():
-                    task = (rid, cid, pool.schedule(_task_fire, args=(rd_rule, rd_mol), timeout=timeout))
+                    task = (rid, cid, pool.schedule(RuleBurner._task_fire, args=(rd_rule, rd_mol), timeout=timeout))
                     all_running_tasks.append(task)
             # Gather the results
             logging.debug(f"Found {len(all_running_tasks)} tasks. Will display progress every 1000 tasks.")
             for i, (rid, cid, future) in enumerate(all_running_tasks):
                 if i % 1000 == 0:
                     logging.debug(f"Working on task #{i} ({rid} on {cid})...")
-                result = {
-                    'rule_id': rid,
-                    'substrate_id': cid,
-                    'product_inchikeys': None,
-                    'product_inchis': None,
-                    'product_smiles': None,
-                }
                 try:
-                    ans = future.result()
-                    rdmols, failed = self._standardize_results(ans)
-                    result['product_inchikeys'], result['product_inchis'], result['product_smiles'] = self._handle_results(rdmols)
+                    inchikeys, inchis, smiles = future.result()
+                    result = {
+                        'rule_id': rid,
+                        'substrate_id': cid,
+                        'product_inchikeys': inchikeys,
+                        'product_inchis': inchis,
+                        'product_smiles': smiles,
+                    }
                     yield result
                 except concurrent.futures.TimeoutError:
                     logging.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
