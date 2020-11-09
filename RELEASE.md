@@ -1,6 +1,7 @@
 # Release history
 
 ## next release
+- refactor!: JSON export in the CLI + compute as a generator
 - docs: sphinx documentation is available
 - ci: package publication is automated by github workflows
 - fix: processes don't hang anymore!
