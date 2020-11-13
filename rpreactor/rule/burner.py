@@ -4,6 +4,8 @@ Core code for firing rules
 
 import concurrent.futures
 import logging
+import sqlite3
+import itertools as it
 
 import pebble
 from rdkit import Chem
@@ -24,45 +26,26 @@ def _task_fire(rd_rule, rd_mol):
 class RuleBurner(object):
     """Apply any number of rules on any number of compounds.
 
-    :param  rsmarts_list:   list of reaction rule SMARTS
-    :param  inchi_list:     list of inchis
-    :param  rid_list:       list of reaction rule IDs
-    :param  cid_list:       list of chemical IDs
     :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
     :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
     """
 
-    def __init__( self, rsmarts_list, inchi_list, rid_list=None,  cid_list=None, with_hs=False, with_stereo=False):
+    def __init__( self, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
-
-        # Input
-        self._rsmarts_list = rsmarts_list
-        self._rid_list = rid_list
-        self._inchi_list = inchi_list
-        self._cid_list = cid_list
-
-        # Processed data
-        # Warning: watch out for memory limitation!
-        # See also: RuleBurner._gen_couple_rule_chemical
-        self._rd_chemicals_list = list()  # store for _gen_rules()
-        self._rd_rules_list = list()      # store for _gen_chemicals()
-        self._are_rd_rules_stored = True if len(rsmarts_list) < len(inchi_list) else False
-        self._are_rd_chemicals_stored = not self._are_rd_rules_stored
+        # Set-up the database
+        # TODO select from file and fallback to :memory: if non selected
+        self._db = sqlite3.connect(":memory:")
+        c = self._db.cursor()
+        c.execute("CREATE TABLE molecules (id text, mol text, rd_mol blob)")
+        c.execute("CREATE TABLE rules (id text, rule text, rd_rule blob)")
+        self._db.row_factory = sqlite3.Row
+        self._db.commit()
 
         # Sanitization
         self._with_hs = with_hs
         self._with_stereo = with_stereo
         if self._with_stereo:
             raise NotImplementedError("Stereo is not implemented at the time being.")
-
-        # Check for consistency between depictions and IDs
-        if self._rid_list and len(self._rsmarts_list) != len(self._rid_list):
-            logging.warning("provided ID and depiction rule lists have different size: IDs will be ignored")
-            self._rid_list = None
-
-        if self._cid_list and len(self._inchi_list) != len(self._cid_list):
-            logging.warning("provided ID and depiction compounds lists have different size: IDs will be ignored")
-            self._cid_list = None
 
     def _standardize_chemical(self, rdmol, heavy=False):
         """Simple standardization of RDKit molecule."""
@@ -188,66 +171,51 @@ class RuleBurner(object):
 
     def _gen_rules(self):
         """Generator of fully initialized/standardized RDKit reaction objects (rules)."""
-        if self._rd_rules_list:
-            for x in self._rd_rules_list:
-                yield x
-        else:
-            logging.debug(f"Starting RDKit reaction object initialization for {len(self._rsmarts_list)} SMARTS. "
-                          "Will display progress every 1000 conversions.")
-            for rindex, rsmarts in enumerate(self._rsmarts_list):
-                rid = self._rid_list[rindex] if self._rid_list else f"rule#{rindex}"
-                if rindex % 1000 == 0:
-                    logging.debug(f"Working on rule #{rindex} ({rid})...")
-                try:
-                    rd_rule = self._init_rdkit_rule(rsmarts)
-                    if self._are_rd_rules_stored:
-                        self._rd_rules_list.append((rid, rd_rule))  # save it for later
-                    yield rid, rd_rule
-                except RuleConversionError as error:
-                    logging.error(f"Something went wrong converting rule '{rid}': {error}")
+        for row in self._db.execute("select * from rules;").fetchall():
+            yield row['id'], Chem.rdChemReactions.ChemicalReaction(row['rd_rule'])
 
     def _gen_chemicals(self):
         """Generator of fully initialized/standardized RDKit molecule objects (chemicals)."""
-        if self._rd_chemicals_list:
-            for x in self._rd_chemicals_list:
-                yield x
-        else:
-            logging.debug(f"Starting RDKit chemical object initialization for {len(self._inchi_list)} InChI. "
-                          "Will display progress every 1000 conversions.")
-            for cindex, inchi in enumerate(self._inchi_list):
-                cid = self._cid_list[cindex] if self._cid_list else f"mol#{cindex}"
-                if cindex % 1000 == 0:
-                    logging.debug(f"Working on chemical #{cindex} ({cid})...")
-                try:
-                    rd_mol = self._init_rdkit_mol_from_inchi(inchi)
-                    if self._are_rd_chemicals_stored:
-                        self._rd_chemicals_list.append((cid, rd_mol))
-                    yield cid, rd_mol
-                except ChemConversionError as error:
-                    logging.error(f"Something went wrong converting chemical '{cid}': {error}")
+        for row in self._db.execute("select * from molecules;").fetchall():
+            yield row['id'], Chem.Mol(row['rd_mol'])
 
-    def _gen_couple_rule_chemical(self):
-        """Generator over couples of fully initialized rules and chemicals."""
-        # NB: we would expect to saturate the RAM by storing both rules and chemicals in memory,
-        # so we try to limit memory usage while preserving performance: we store only the shortest sequence of objects
-        # (except if there is only one object) and we use it as the inner loop to avoid recomputing the same heavy tasks
-        # at each outer loop iteration. This does not mean that it is memory-safe to work on very big datasets,
-        # it is merely a hack for: "one vs. many" and "some vs. some" cases. For other situations, user will have to
-        # create several instances of RuleBurner and manage things on his own.
-        # NB: the RAM will probably get saturated for "one vs. many" cases but you should not swap. Have some faith
-        # in Python garbage collector.
-        if self._are_rd_chemicals_stored or self._rsmarts_list == 1:
-            for rid, rd_rule in self._gen_rules():
-                for cid, rd_mol in self._gen_chemicals():
-                    yield rid, rd_rule, cid, rd_mol
-        else:
-            for cid, rd_mol in self._gen_chemicals():
-                for rid, rd_rule in self._gen_rules():
-                    yield rid, rd_rule, cid, rd_mol
+    def _insert_something(self, item_list, id_list, where, rdkit_func, chunk_size):
+        """Helper function to insert something (metabolite or reaction) into the database."""
+        # Consistency
+        if id_list and len(item_list) != len(id_list):
+            logging.warning("provided ID and item lists have different size: IDs will be ignored")
+            id_list = None
+        # Standardize molecules and add them to the database
+        logging.debug(f"Inserting {len(item_list)} RDKit objects in the database. Will display progress every 1000 conversions.")
+        n_blocks = len(item_list) // chunk_size + 1
+        for bindex, item_block in enumerate(it.tee(item_list, n_blocks)):
+            listof_records = []
+            for cindex, item in enumerate(item_block):
+                cindex += bindex
+                this_id = id_list[cindex] if id_list else f"{cindex}"
+                if cindex % 1000 == 0:
+                    logging.debug(f"Working on #{cindex} ({this_id})...")
+                try:
+                    rd_item = rdkit_func(item)
+                    listof_records.append((this_id, item, rd_item.ToBinary()))
+                except ChemConversionError as error:
+                    logging.error(f"Something went wrong converting chemical '{this_id}': {error}")
+                except RuleConversionError as error:
+                    logging.error(f"Something went wrong converting rule '{this_id}': {error}")
+            self._db.executemany(f"insert into {where} values (?,?,?)", listof_records)
+        self._db.commit()
+
+    def insert_inchi(self, inchi_list, cid_list=None, chunk_size=10000):
+        """Register molecules defined as InChI."""
+        self._insert_something(inchi_list, cid_list, "molecules", self._init_rdkit_mol_from_inchi, chunk_size)
+
+    def insert_rsmarts(self, rsmarts_list, rid_list=None, chunk_size=10000):
+        """Register reactions defined as resction SMARTS."""
+        self._insert_something(rsmarts_list, rid_list, "rules", self._init_rdkit_rule, chunk_size)
 
     def compute(self, max_workers=1, timeout=60):
         """Apply all rules on all chemicals and returns a generator over the results."""
-        # TODO: parallelization will be useless, the time-consuming part is rule and chemical initialization
+        # NB: parallelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Submit all the tasks
             # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
