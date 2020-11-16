@@ -193,12 +193,20 @@ class RuleBurner(object):
 
     def _gen_rules(self, ids):
         """Generator of fully initialized/standardized RDKit reaction objects (rules)."""
-        for row in self._db.execute("select * from rules;").fetchall():
+        if ids is None:
+            query = self._db.execute("select * from rules;")
+        else:
+            query = self._db.execute(f"select * from rules where rules.id in ({','.join(['?'] * len(ids))})", ids)
+        for row in query.fetchall():
             yield row['id'], Chem.rdChemReactions.ChemicalReaction(row['rd_rule'])
 
     def _gen_chemicals(self, ids):
         """Generator of fully initialized/standardized RDKit molecule objects (chemicals)."""
-        for row in self._db.execute("select * from molecules;").fetchall():
+        if ids is None:
+            query = self._db.execute("select * from molecules;")
+        else:
+            query = self._db.execute(f"select * from molecules where molecules.id in ({','.join(['?'] * len(ids))})", ids)
+        for row in query.fetchall():
             yield row['id'], Chem.Mol(row['rd_mol'])
 
     def _gen_couples(self, rule_list, mol_list):
@@ -253,7 +261,11 @@ class RuleBurner(object):
         raise NotImplementedError  # TODO
 
     def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60, chunk_size=1000):
-        """Apply all rules on all chemicals and returns a generator over the results."""
+        """Apply all rules on all chemicals and returns a generator over the results.
+
+        Importantly, if <rule_list> is None (resp. <mol_list>), then ALL rules (resp. molecules) found in the database
+        will be used.
+        """
         # NB: parallelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Prepare chunks of tasks
@@ -263,7 +275,8 @@ class RuleBurner(object):
             logging.debug(f"Computing tasks in chunks of at most {chunk_size} couples (rule,  molecule) "
                           f"with {max_workers} workers and a per-task timeout of {timeout} seconds.")
             for chunk_idx, chunk in enumerate(_chunkify(self._gen_couples(rule_list, mol_list), chunk_size)):
-                logging.debug(f"Working on task chunk #{chunk_idx+1}...")
+                if chunk_idx > 0:
+                    logging.debug(f"Working on task chunk #{chunk_idx+1}...")
                 # Submit all the tasks for this chunk
                 all_running_tasks = []  # list of Future objects
                 for rid, rd_rule, cid, rd_mol in chunk:
