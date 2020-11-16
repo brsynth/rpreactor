@@ -44,7 +44,9 @@ class RuleBurner(object):
         # TODO: add table "results" (watch out for indexes if we search for a previous result at each query!)
         self._db.row_factory = sqlite3.Row
         self._db.commit()
-
+        n_rules = self._db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
+        n_mols = self._db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
+        logging.info(f"Connected to a database with {n_rules} rules and {n_mols} molecules (at '{database}').")
         # Sanitization
         self._with_hs = with_hs
         self._with_stereo = with_stereo
@@ -189,15 +191,22 @@ class RuleBurner(object):
             raise ChemConversionError(e) from e
         return rd_mol
 
-    def _gen_rules(self):
+    def _gen_rules(self, ids):
         """Generator of fully initialized/standardized RDKit reaction objects (rules)."""
         for row in self._db.execute("select * from rules;").fetchall():
             yield row['id'], Chem.rdChemReactions.ChemicalReaction(row['rd_rule'])
 
-    def _gen_chemicals(self):
+    def _gen_chemicals(self, ids):
         """Generator of fully initialized/standardized RDKit molecule objects (chemicals)."""
         for row in self._db.execute("select * from molecules;").fetchall():
             yield row['id'], Chem.Mol(row['rd_mol'])
+
+    def _gen_couples(self, rule_list, mol_list):
+        """Generator of fully initialized/standardized RDKit couples of rules and molecules."""
+        self._gen_rules(rule_list), self._gen_chemicals(mol_list)
+        for rid, rd_rule in self._gen_rules(rule_list):
+            for cid, rd_mol in self._gen_chemicals(mol_list):
+                yield rid, rd_rule, cid, rd_mol
 
     def _insert_something(self, item_list, id_list, table_name, rdkit_func, chunk_size):
         """Helper function to insert something (metabolite or reaction) into the database."""
@@ -243,43 +252,44 @@ class RuleBurner(object):
         """Drop the results table."""
         raise NotImplementedError  # TODO
 
-    def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60):
+    def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60, chunk_size=1000):
         """Apply all rules on all chemicals and returns a generator over the results."""
-        # TODO check if we need to add the tasks in chunks: do we saturate the RAM with too many tasks?
         # NB: parallelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
-            # Submit all the tasks
+            # Prepare chunks of tasks
             # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
-            # when a generator is used as input; so we use pool.schedule and we explicitly store parameters
-            # (i.e. RDKit objects) for readability.
-            all_running_tasks = []  # list of Future objects
-            for rid, rd_rule in self._gen_rules():
-                for cid, rd_mol in self._gen_chemicals():
+            # even if a generator is used as input; so we use pool.schedule and we do our own chunks to avoid saturating
+            # the RAM.
+            logging.debug(f"Computing tasks in chunks of at most {chunk_size} couples (rule,  molecule) "
+                          f"with {max_workers} workers and a per-task timeout of {timeout} seconds.")
+            for chunk_idx, chunk in enumerate(_chunkify(self._gen_couples(rule_list, mol_list), chunk_size)):
+                logging.debug(f"Working on task chunk #{chunk_idx+1}...")
+                # Submit all the tasks for this chunk
+                all_running_tasks = []  # list of Future objects
+                for rid, rd_rule, cid, rd_mol in chunk:
                     task = (rid, cid, pool.schedule(RuleBurner._task_fire, args=(rd_rule, rd_mol), timeout=timeout))
                     all_running_tasks.append(task)
-            # Gather the results
-            logging.debug(f"Found {len(all_running_tasks)} tasks. Will display progress every 1000 tasks.")
-            for i, (rid, cid, future) in enumerate(all_running_tasks):
-                if i % 1000 == 0:
-                    logging.debug(f"Working on task #{i} (rule {rid} on molecule {cid})...")
-                try:
-                    rd_mol_list, inchikeys, inchis, smiles = future.result()
-                    result = {
-                        'rule_id': rid,
-                        'substrate_id': cid,
-                        'product_list': rd_mol_list,
-                        'product_inchikeys': inchikeys,
-                        'product_inchis': inchis,
-                        'product_smiles': smiles,
-                    }
-                    yield result
-                except concurrent.futures.TimeoutError:
-                    logging.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
-                    # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
-                except RuleFireError as error:
-                    logging.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
-                except pebble.ProcessExpired as error:
-                    logging.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
+                # Gather the results
+                for i, (rid, cid, future) in enumerate(all_running_tasks):
+                    try:
+                        rd_mol_list, inchikeys, inchis, smiles = future.result()
+                        result = {
+                            'rule_id': rid,
+                            'substrate_id': cid,
+                            'product_list': rd_mol_list,
+                            'product_inchikeys': inchikeys,
+                            'product_inchis': inchis,
+                            'product_smiles': smiles,
+                        }
+                        if rd_mol_list:  # silently discard tasks without a match
+                            yield result
+                    except concurrent.futures.TimeoutError:
+                        logging.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
+                        # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
+                    except RuleFireError as error:
+                        logging.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
+                    except pebble.ProcessExpired as error:
+                        logging.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
 
 
 def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite):
