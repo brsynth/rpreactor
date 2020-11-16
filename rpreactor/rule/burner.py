@@ -5,7 +5,7 @@ Core code for firing rules
 import concurrent.futures
 import logging
 import sqlite3
-import itertools as it
+import itertools
 
 import pebble
 from rdkit import Chem
@@ -14,6 +14,13 @@ from rdkit.Chem import AllChem
 from rpreactor.chemical.standardizer import Standardizer
 from rpreactor.rule.exceptions import ChemConversionError, RuleFireError, RuleConversionError
 
+# TODO follow best practise for logging
+
+
+def _chunkify(it, size):
+    it = iter(it)
+    return iter(lambda: tuple(itertools.islice(it, size)), ())
+
 
 class RuleBurner(object):
     """Apply any number of rules on any number of compounds.
@@ -21,15 +28,20 @@ class RuleBurner(object):
     :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
     :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
     """
+    # TODO: rename class to 'RuleManager' or something?
 
-    def __init__( self, with_hs=False, with_stereo=False):
+    _SQL_CREATETABLE_MOLECULES = "CREATE TABLE IF NOT EXISTS molecules (id text, rd_mol blob)"
+    _SQL_CREATETABLE_RULES = "CREATE TABLE IF NOT EXISTS rules (id text, rd_rule blob)"
+
+    def __init__(self, database=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
         # Set-up the database
-        # TODO select from file and fallback to :memory: if non selected
-        self._db = sqlite3.connect(":memory:")
-        c = self._db.cursor()
-        c.execute("CREATE TABLE molecules (id text, mol text, rd_mol blob)")
-        c.execute("CREATE TABLE rules (id text, rule text, rd_rule blob)")
+        if database is None:
+            database = ":memory:"
+        self._db = sqlite3.connect(database)  # warning: only current thread will be able to use it
+        self._db.execute(self._SQL_CREATETABLE_MOLECULES)
+        self._db.execute(self._SQL_CREATETABLE_RULES)
+        # TODO: add table "results" (watch out for indexes if we search for a previous result at each query!)
         self._db.row_factory = sqlite3.Row
         self._db.commit()
 
@@ -157,7 +169,7 @@ class RuleBurner(object):
             except Exception as e:
                 logging.warning("Cannot handle a tuple of result, skipped")
                 logging.warning("{}".format(e))
-        return list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
+        return list_list_rdmol, list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
     def _init_rdkit_rule(self, rsmarts):
         """Return RDKit reaction object."""
@@ -187,42 +199,53 @@ class RuleBurner(object):
         for row in self._db.execute("select * from molecules;").fetchall():
             yield row['id'], Chem.Mol(row['rd_mol'])
 
-    def _insert_something(self, item_list, id_list, where, rdkit_func, chunk_size):
+    def _insert_something(self, item_list, id_list, table_name, rdkit_func, chunk_size):
         """Helper function to insert something (metabolite or reaction) into the database."""
         # Consistency
         if id_list and len(item_list) != len(id_list):
-            logging.warning("provided ID and item lists have different size: IDs will be ignored")
-            id_list = None
-        # Standardize molecules and add them to the database
-        logging.debug(f"Inserting {len(item_list)} RDKit objects in the database. Will display progress every 1000 conversions.")
-        n_blocks = len(item_list) // chunk_size + 1
-        for bindex, item_block in enumerate(it.tee(item_list, n_blocks)):
+            raise ValueError("Provided ID and item lists have different size: aborting.")
+        # Standardize items and add them to the database
+        n_blocks = (len(item_list)) // chunk_size   # 0-based
+        logging.debug(f"Inserting {len(item_list)} RDKit objects in the database as {n_blocks+1} transactions of "
+                      f"at most {chunk_size} elements.")
+        for chunk_idx, chunk in enumerate(_chunkify(item_list, chunk_size)):
             listof_records = []
-            for cindex, item in enumerate(item_block):
-                cindex += bindex
-                this_id = id_list[cindex] if id_list else f"{cindex}"
-                if cindex % 1000 == 0:
-                    logging.debug(f"Working on #{cindex} ({this_id})...")
+            if chunk_idx > 0:
+                logging.debug(f"Working on transaction #{chunk_idx+1}...")
+            for cindex, item in enumerate(chunk):
+                idx = chunk_idx * chunk_size + cindex
+                this_id = id_list[idx] if id_list else f"{idx}"
                 try:
                     rd_item = rdkit_func(item)
-                    listof_records.append((this_id, item, rd_item.ToBinary()))
+                    listof_records.append((this_id, rd_item.ToBinary()))  # metabolite or reaction
                 except ChemConversionError as error:
                     logging.error(f"Something went wrong converting chemical '{this_id}': {error}")
                 except RuleConversionError as error:
                     logging.error(f"Something went wrong converting rule '{this_id}': {error}")
-            self._db.executemany(f"insert into {where} values (?,?,?)", listof_records)
+            self._db.executemany(f"insert into {table_name} values (?,?)", listof_records)
         self._db.commit()
 
-    def insert_inchi(self, inchi_list, cid_list=None, chunk_size=10000):
-        """Register molecules defined as InChI."""
-        self._insert_something(inchi_list, cid_list, "molecules", self._init_rdkit_mol_from_inchi, chunk_size)
-
     def insert_rsmarts(self, rsmarts_list, rid_list=None, chunk_size=10000):
-        """Register reactions defined as resction SMARTS."""
+        """Insert reaction rules defined as reaction SMARTS into the database."""
         self._insert_something(rsmarts_list, rid_list, "rules", self._init_rdkit_rule, chunk_size)
 
-    def compute(self, max_workers=1, timeout=60):
+    def insert_inchi(self, inchi_list, cid_list=None, chunk_size=10000):
+        """Insert molecules defined as InChI into the database."""
+        self._insert_something(inchi_list, cid_list, "molecules", self._init_rdkit_mol_from_inchi, chunk_size)
+
+    def dump_to_sql(self, path):
+        """Dump the database as a SQL file."""
+        with open(path, 'w') as f:
+            for line in self._db.iterdump():
+                f.write(f'{line}\n')
+
+    def drop_results(self):
+        """Drop the results table."""
+        raise NotImplementedError  # TODO
+
+    def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60):
         """Apply all rules on all chemicals and returns a generator over the results."""
+        # TODO check if we need to add the tasks in chunks: do we saturate the RAM with too many tasks?
         # NB: parallelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Submit all the tasks
@@ -238,12 +261,13 @@ class RuleBurner(object):
             logging.debug(f"Found {len(all_running_tasks)} tasks. Will display progress every 1000 tasks.")
             for i, (rid, cid, future) in enumerate(all_running_tasks):
                 if i % 1000 == 0:
-                    logging.debug(f"Working on task #{i} ({rid} on {cid})...")
+                    logging.debug(f"Working on task #{i} (rule {rid} on molecule {cid})...")
                 try:
-                    inchikeys, inchis, smiles = future.result()
+                    rd_mol_list, inchikeys, inchis, smiles = future.result()
                     result = {
                         'rule_id': rid,
                         'substrate_id': cid,
+                        'product_list': rd_mol_list,
                         'product_inchikeys': inchikeys,
                         'product_inchis': inchis,
                         'product_smiles': smiles,
@@ -256,3 +280,16 @@ class RuleBurner(object):
                     logging.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
                 except pebble.ProcessExpired as error:
                     logging.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
+
+
+def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite):
+    raise NotImplementedError  # TODO
+
+
+def create_db_from_retrorules(path_retrosmarts_tsv, path_sqlite, version="v1.0"):
+    """Convert a RetroRules dataset to a rpreactor-ready sqlite3 database.
+
+    For more information on RetroRules, see https://retrorules.org/.
+    """
+    if version.startswith("v1.0"):
+        _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite)
