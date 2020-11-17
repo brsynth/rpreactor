@@ -6,6 +6,8 @@ import concurrent.futures
 import logging
 import sqlite3
 import itertools
+import csv
+import collections
 
 import pebble
 from rdkit import Chem
@@ -30,8 +32,8 @@ class RuleBurner(object):
     """
     # TODO: rename class to 'RuleManager' or something?
 
-    _SQL_CREATETABLE_MOLECULES = "CREATE TABLE IF NOT EXISTS molecules (id text, rd_mol blob)"
-    _SQL_CREATETABLE_RULES = "CREATE TABLE IF NOT EXISTS rules (id text, rd_rule blob)"
+    _SQL_CREATETABLE_MOLECULES = "CREATE TABLE IF NOT EXISTS molecules (id TEXT NOT NULL PRIMARY KEY, rd_mol BLOB NOT NULL)"
+    _SQL_CREATETABLE_RULES = "CREATE TABLE IF NOT EXISTS rules (id TEXT NOT NULL PRIMARY KEY, rd_rule BLOB NOT NULL)"
 
     def __init__(self, database=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
@@ -191,6 +193,15 @@ class RuleBurner(object):
             raise ChemConversionError(e) from e
         return rd_mol
 
+    def _init_rdkit_mol_from_smiles(self, smiles):
+        """Return standardized RDKit molecule object."""
+        try:
+            rd_mol = Chem.MolFromSmiles(smiles, sanitize=False)  # important: Sanitize = False
+            rd_mol = RuleBurner._standardize_chemical(rd_mol, heavy=True)
+        except Exception as e:
+            raise ChemConversionError(e) from e
+        return rd_mol
+
     def _gen_rules(self, ids):
         """Generator of fully initialized/standardized RDKit reaction objects (rules)."""
         if ids is None:
@@ -216,39 +227,45 @@ class RuleBurner(object):
             for cid, rd_mol in self._gen_chemicals(mol_list):
                 yield rid, rd_rule, cid, rd_mol
 
-    def _insert_something(self, item_list, id_list, table_name, rdkit_func, chunk_size):
+    def _insert_something(self, data, table_name, rdkit_func, chunk_size):
         """Helper function to insert something (metabolite or reaction) into the database."""
-        # Consistency
-        if id_list and len(item_list) != len(id_list):
-            raise ValueError("Provided ID and item lists have different size: aborting.")
+        assert isinstance(data, collections.Mapping), "UNEXPECTED: 'data' must be a Dict-like object."
         # Standardize items and add them to the database
-        n_blocks = (len(item_list)) // chunk_size   # 0-based
-        logging.debug(f"Inserting {len(item_list)} RDKit objects in the database as {n_blocks+1} transactions of "
+        n_blocks = len(data) // chunk_size   # 0-based
+        logging.debug(f"Inserting {len(data)} RDKit objects in the database as {n_blocks+1} transactions of "
                       f"at most {chunk_size} elements.")
-        for chunk_idx, chunk in enumerate(_chunkify(item_list, chunk_size)):
+        for chunk_idx, chunk in enumerate(_chunkify(data, chunk_size)):
             listof_records = []
             if chunk_idx > 0:
                 logging.debug(f"Working on transaction #{chunk_idx+1}...")
-            for cindex, item in enumerate(chunk):
-                idx = chunk_idx * chunk_size + cindex
-                this_id = id_list[idx] if id_list else f"{idx}"
+            for key in chunk:
                 try:
-                    rd_item = rdkit_func(item)
-                    listof_records.append((this_id, rd_item.ToBinary()))  # metabolite or reaction
+                    rd_item = rdkit_func(data[key])
+                    listof_records.append((key, rd_item.ToBinary()))  # metabolite or reaction
                 except ChemConversionError as error:
-                    logging.error(f"Something went wrong converting chemical '{this_id}': {error}")
+                    logging.error(f"Something went wrong converting chemical '{key}': {error}")
                 except RuleConversionError as error:
-                    logging.error(f"Something went wrong converting rule '{this_id}': {error}")
+                    logging.error(f"Something went wrong converting rule '{key}': {error}")
             self._db.executemany(f"insert into {table_name} values (?,?)", listof_records)
         self._db.commit()
 
-    def insert_rsmarts(self, rsmarts_list, rid_list=None, chunk_size=10000):
+    def insert_rsmarts(self, data, chunk_size=10000):
         """Insert reaction rules defined as reaction SMARTS into the database."""
-        self._insert_something(rsmarts_list, rid_list, "rules", self._init_rdkit_rule, chunk_size)
+        if not isinstance(data, collections.Mapping):
+            data = {k: v for k, v in enumerate(data)}
+        self._insert_something(data, "rules", self._init_rdkit_rule, chunk_size)
 
-    def insert_inchi(self, inchi_list, cid_list=None, chunk_size=10000):
+    def insert_inchi(self, data, chunk_size=10000):
         """Insert molecules defined as InChI into the database."""
-        self._insert_something(inchi_list, cid_list, "molecules", self._init_rdkit_mol_from_inchi, chunk_size)
+        if not isinstance(data, collections.Mapping):
+            data = {k: v for k, v in enumerate(data)}
+        self._insert_something(data, "molecules", self._init_rdkit_mol_from_inchi, chunk_size)
+
+    def insert_smiles(self, data, chunk_size=10000):
+        """Insert molecules defined as InChI into the database."""
+        if not isinstance(data, collections.Mapping):
+            data = {k: v for k, v in enumerate(data)}
+        self._insert_something(data, "molecules", self._init_rdkit_mol_from_smiles, chunk_size)
 
     def dump_to_sql(self, path):
         """Dump the database as a SQL file."""
@@ -305,14 +322,45 @@ class RuleBurner(object):
                         logging.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
 
 
-def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite):
-    raise NotImplementedError  # TODO
+def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs, with_stereo):
+    def helper_metabolite(store, cid, smiles):
+        if cid not in store:
+            store[cid] = smiles
+        elif store[cid] != smiles:
+            logging.warning(f"Metabolite {cid} is suspiciously associated to distinct SMILES. "
+                            f"Only the first one will be considered: {store[cid]} and {smiles}")
+    rules = {}
+    metabolites = {}
+    # Load all valuable data in-memory
+    # NB: is this file small enough that we do not need to chunk it?
+    with open(path_retrosmarts_tsv) as hdl:
+        for row in csv.DictReader(hdl, delimiter='\t'):
+            # each row contains 1 rule...
+            # NB: rule identifier may be duplicated over several rows but must match the same RSMARTS
+            rid = row["# Rule_ID"]
+            rsmarts = row["Rule_SMARTS"]
+            if rid not in rules:
+                rules[rid] = rsmarts
+            else:
+                assert rules[rid] == rsmarts, f"UNEXPECTED: rule {rid} from {path_retrosmarts_tsv} has " \
+                                              f"mismatching RSMARTS: {rules[rid]} and {rsmarts}"
+            # ... and 1 substrate ...
+            helper_metabolite(metabolites, row["Substrate_ID"], row["Substrate_SMILES"])
+            # ... and N products
+            smiles_list = row["Product_SMILES"].split('.')
+            for idx, cid in enumerate(row["Product_IDs"].split('.')):
+                helper_metabolite(metabolites, cid, smiles_list[idx])
+    # Create the database
+    o = RuleBurner(database=path_sqlite, with_hs=with_hs, with_stereo=with_stereo)
+    o.insert_rsmarts(rules)
+    o.insert_smiles(metabolites)
 
 
-def create_db_from_retrorules(path_retrosmarts_tsv, path_sqlite, version="v1.0"):
+def create_db_from_retrorules(path_retrosmarts_tsv, path_sqlite, with_hs=False, with_stereo=False, version="v1.0"):
     """Convert a RetroRules dataset to a rpreactor-ready sqlite3 database.
 
+    All rules and all molecules will be extracted from the TSV file and imported into the database.
     For more information on RetroRules, see https://retrorules.org/.
     """
     if version.startswith("v1.0"):
-        _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite)
+        _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs, with_stereo)
