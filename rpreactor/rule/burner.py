@@ -56,7 +56,7 @@ class RuleBurner(object):
             raise NotImplementedError("Stereo is not implemented at the time being.")
 
     @staticmethod
-    def _task_fire(rd_rule, rd_mol):
+    def _task_fire(rd_rule, rd_mol, with_hs, with_stereo):
         """Apply one reaction rule on one chemical.
 
         We do not trust the task to terminate by itself, that's why we put it in a separate process that we can kill if
@@ -64,21 +64,21 @@ class RuleBurner(object):
         """
         try:
             ans = rd_rule.RunReactants((rd_mol,))
-            rdmols, failed = RuleBurner._standardize_results(ans)
+            rdmols, failed = RuleBurner._standardize_results(ans, with_hs, with_stereo)
             return RuleBurner._handle_results(rdmols)
         except Exception as e:
             raise RuleFireError(e) from e
 
     @staticmethod
-    def _standardize_chemical(rdmol, heavy=False):
+    def _standardize_chemical(rdmol, with_hs, with_stereo, heavy=False):
         """Simple standardization of RDKit molecule."""
         params = {
             'OP_REMOVE_ISOTOPE': False,
             'OP_NEUTRALISE_CHARGE': False,
-            'OP_REMOVE_STEREO': True, #not self._with_stereo, TODO
+            'OP_REMOVE_STEREO': not with_stereo,
             'OP_COMMUTE_INCHI': True,
             'OP_KEEP_BIGGEST': False,
-            'OP_ADD_HYDROGEN': True, #self._with_hs, TODO
+            'OP_ADD_HYDROGEN': with_hs,
             'OP_KEKULIZE': False,
             'OP_NEUTRALISE_CHARGE_LATE': True
         }
@@ -89,7 +89,7 @@ class RuleBurner(object):
         return Standardizer(sequence_fun='sequence_tunable', params=params).compute(rdmol)
 
     @staticmethod
-    def _standardize_results(tuple_tuple_rdmol):
+    def _standardize_results(tuple_tuple_rdmol, with_hs, with_stereo):
         """Perform sanitization and remove duplicates from reaction rule results.
 
         :param      tuple_tuple_rdmol:      tuple of tuple of RDKit Mol
@@ -107,7 +107,7 @@ class RuleBurner(object):
                 # Standardize
                 for rdmol in tuple_rdmol:
                     for rd_frag in Chem.GetMolFrags(rdmol, asMols=True, sanitizeFrags=False):
-                        list_std.append(RuleBurner._standardize_chemical(rd_frag))
+                        list_std.append(RuleBurner._standardize_chemical(rd_frag, with_hs, with_stereo))
                 # Get InChIKey
                 for rdmol in list_std:
                     inchikey = Chem.MolToInchiKey(rdmol)
@@ -188,7 +188,7 @@ class RuleBurner(object):
         """Return standardized RDKit molecule object."""
         try:
             rd_mol = Chem.MolFromInchi(inchi, sanitize=False)  # important: Sanitize = False
-            rd_mol = RuleBurner._standardize_chemical(rd_mol, heavy=True)
+            rd_mol = RuleBurner._standardize_chemical(rd_mol, self._with_hs, self._with_stereo, heavy=True)
         except Exception as e:
             raise ChemConversionError(e) from e
         return rd_mol
@@ -197,7 +197,7 @@ class RuleBurner(object):
         """Return standardized RDKit molecule object."""
         try:
             rd_mol = Chem.MolFromSmiles(smiles, sanitize=False)  # important: Sanitize = False
-            rd_mol = RuleBurner._standardize_chemical(rd_mol, heavy=True)
+            rd_mol = RuleBurner._standardize_chemical(rd_mol, self._with_hs, self._with_stereo, heavy=True)
         except Exception as e:
             raise ChemConversionError(e) from e
         return rd_mol
@@ -297,7 +297,9 @@ class RuleBurner(object):
                 # Submit all the tasks for this chunk
                 all_running_tasks = []  # list of Future objects
                 for rid, rd_rule, cid, rd_mol in chunk:
-                    task = (rid, cid, pool.schedule(RuleBurner._task_fire, args=(rd_rule, rd_mol), timeout=timeout))
+                    task = (rid, cid, pool.schedule(RuleBurner._task_fire,
+                                                    args=(rd_rule, rd_mol, self._with_hs, self._with_stereo),
+                                                    timeout=timeout))
                     all_running_tasks.append(task)
                 # Gather the results
                 for i, (rid, cid, future) in enumerate(all_running_tasks):
