@@ -47,6 +47,8 @@ class RuleBurner(object):
         # TODO: add table "results" (watch out for indexes if we search for a previous result at each query!)
         self._db.row_factory = sqlite3.Row
         self._db.commit()
+        self._chemicals = None
+        self._rules = None
         n_rules = self._db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
         n_mols = self._db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
         logger.info(f"Connected to a database with {n_rules} rules and {n_mols} molecules (at '{database}').")
@@ -55,6 +57,20 @@ class RuleBurner(object):
         self._with_stereo = with_stereo
         if self._with_stereo:
             raise NotImplementedError("Stereo is not implemented at the time being.")
+
+    @property
+    def chemicals(self):
+        """Returns a list of chemicals (molecules) identifier stored in the database."""
+        if self._chemicals is None:
+            self._chemicals = [x['id'] for x in self._db.execute("SELECT id FROM molecules").fetchall()]
+        return self._chemicals
+
+    @property
+    def rules(self):
+        """Returns a list of rules identifier stored in the database."""
+        if self._rules is None:
+            self._rules = [x['id'] for x in self._db.execute("SELECT id FROM rules").fetchall()]
+        return self._rules
 
     @staticmethod
     def _task_fire(rd_rule, rd_mol, with_hs, with_stereo):
@@ -176,6 +192,22 @@ class RuleBurner(object):
                 logger.warning("{}".format(e))
         return list_list_rdmol, list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
+    @staticmethod
+    def _get_highest_int(untrusted_list):
+        """Return the highest integer from a list of untrusted data that may or may not be cast to integers.
+
+        Importantly, any value that can be cast to an integer will be considered. Default to 0.
+        """
+        highest = 0
+        for item in untrusted_list:
+            try:
+                candidate = int(item)
+                if candidate > highest:
+                    highest = candidate
+            except ValueError:
+                pass  # silently ignore errors: those are probably not numbers
+        return highest
+
     def _init_rdkit_rule(self, rsmarts):
         """Return RDKit reaction object."""
         try:
@@ -230,7 +262,12 @@ class RuleBurner(object):
 
     def _insert_something(self, data, table_name, rdkit_func, chunk_size):
         """Helper function to insert something (metabolite or reaction) into the database."""
-        assert isinstance(data, collections.Mapping), "UNEXPECTED: 'data' must be a Dict-like object."
+        assert table_name in ["molecules", "rules"], "UNEXPECTED: 'table_name' must be 'molecules' or 'rules'."
+        # First, convert data to a Dict-like structure with key as identifiers
+        previous_ids = self.rules if table_name == "rules" else self.chemicals
+        if not isinstance(data, collections.Mapping):
+            offset = RuleBurner._get_highest_int(previous_ids) + 1 if previous_ids else 0
+            data = {k+offset: v for k, v in enumerate(data)}
         # Standardize items and add them to the database
         n_blocks = len(data) // chunk_size   # 0-based
         logger.debug(f"Inserting {len(data)} RDKit objects in the database as {n_blocks+1} transactions of "
@@ -249,23 +286,22 @@ class RuleBurner(object):
                     logger.error(f"Something went wrong converting rule '{key}': {error}")
             self._db.executemany(f"insert into {table_name} values (?,?)", listof_records)
         self._db.commit()
+        # Reset the list of identifiers
+        if table_name == "rules":
+            self._rules = None
+        else:
+            self._chemicals = None
 
     def insert_rsmarts(self, data, chunk_size=10000):
         """Insert reaction rules defined as reaction SMARTS into the database."""
-        if not isinstance(data, collections.Mapping):
-            data = {k: v for k, v in enumerate(data)}
         self._insert_something(data, "rules", self._init_rdkit_rule, chunk_size)
 
     def insert_inchi(self, data, chunk_size=10000):
         """Insert molecules defined as InChI into the database."""
-        if not isinstance(data, collections.Mapping):
-            data = {k: v for k, v in enumerate(data)}
         self._insert_something(data, "molecules", self._init_rdkit_mol_from_inchi, chunk_size)
 
     def insert_smiles(self, data, chunk_size=10000):
         """Insert molecules defined as InChI into the database."""
-        if not isinstance(data, collections.Mapping):
-            data = {k: v for k, v in enumerate(data)}
         self._insert_something(data, "molecules", self._init_rdkit_mol_from_smiles, chunk_size)
 
     def create_indexes(self):
@@ -290,7 +326,6 @@ class RuleBurner(object):
         Importantly, if <rule_list> is None (resp. <mol_list>), then ALL rules (resp. molecules) found in the database
         will be used.
         """
-        # NB: parallelization will be useless, the time-consuming part is rule and chemical initialization
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Prepare chunks of tasks
             # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
