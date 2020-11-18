@@ -267,6 +267,12 @@ class RuleBurner(object):
             data = {k: v for k, v in enumerate(data)}
         self._insert_something(data, "molecules", self._init_rdkit_mol_from_smiles, chunk_size)
 
+    def create_indexes(self):
+        """Create SQL indexes on the database."""
+        self._db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
+        self._db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
+        self._db.commit()
+
     def dump_to_sql(self, path):
         """Dump the database as a SQL file."""
         with open(path, 'w') as f:
@@ -356,6 +362,7 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs
     o = RuleBurner(database=path_sqlite, with_hs=with_hs, with_stereo=with_stereo)
     o.insert_rsmarts(rules)
     o.insert_smiles(metabolites)
+    o.create_indexes()
 
 
 def create_db_from_retrorules(path_retrosmarts_tsv, path_sqlite, with_hs=False, with_stereo=False, version="v1.0"):
