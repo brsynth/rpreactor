@@ -16,7 +16,8 @@ from rdkit.Chem import AllChem
 from rpreactor.chemical.standardizer import Standardizer
 from rpreactor.rule.exceptions import ChemConversionError, RuleFireError, RuleConversionError
 
-# TODO follow best practise for logging
+
+logger = logging.getLogger(__name__)
 
 
 def _chunkify(it, size):
@@ -48,7 +49,7 @@ class RuleBurner(object):
         self._db.commit()
         n_rules = self._db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
         n_mols = self._db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
-        logging.info(f"Connected to a database with {n_rules} rules and {n_mols} molecules (at '{database}').")
+        logger.info(f"Connected to a database with {n_rules} rules and {n_mols} molecules (at '{database}').")
         # Sanitization
         self._with_hs = with_hs
         self._with_stereo = with_stereo
@@ -115,7 +116,7 @@ class RuleBurner(object):
                         list_inchikeys.append(inchikey)
                     else:
                         msg = 'Product conversion to InChIKey raised an empty string'
-                        logging.warning(ChemConversionError(msg))
+                        logger.warning(ChemConversionError(msg))
                         raise ChemConversionError(msg)
                 # Get unique depiction
                 depic = '.'.join(sorted(list_inchikeys))
@@ -124,12 +125,12 @@ class RuleBurner(object):
                     uniq_depics.add(depic)
                     list_list_std.append(list_std)
             except ChemConversionError as e:
-                logging.warning("{}".format(e))
+                logger.warning("{}".format(e))
                 list_idx_tuple_failed.append(idx_tuple)
                 raise e
             except Exception as e:
-                logging.warning("Cannot handle a tuple of result, skipped")
-                logging.warning("{}".format(e))
+                logger.warning("Cannot handle a tuple of result, skipped")
+                logger.warning("{}".format(e))
                 list_idx_tuple_failed.append(idx_tuple)
 
         return list_list_std, list_idx_tuple_failed
@@ -168,11 +169,11 @@ class RuleBurner(object):
                 list_list_inchis.append(list_inchis)
                 list_list_smiles.append(list_smiles)
             except ChemConversionError as e:
-                logging.warning("{}".format(e))
+                logger.warning("{}".format(e))
                 raise e
             except Exception as e:
-                logging.warning("Cannot handle a tuple of result, skipped")
-                logging.warning("{}".format(e))
+                logger.warning("Cannot handle a tuple of result, skipped")
+                logger.warning("{}".format(e))
         return list_list_rdmol, list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
     def _init_rdkit_rule(self, rsmarts):
@@ -232,20 +233,20 @@ class RuleBurner(object):
         assert isinstance(data, collections.Mapping), "UNEXPECTED: 'data' must be a Dict-like object."
         # Standardize items and add them to the database
         n_blocks = len(data) // chunk_size   # 0-based
-        logging.debug(f"Inserting {len(data)} RDKit objects in the database as {n_blocks+1} transactions of "
-                      f"at most {chunk_size} elements.")
+        logger.debug(f"Inserting {len(data)} RDKit objects in the database as {n_blocks+1} transactions of "
+                     f"at most {chunk_size} elements.")
         for chunk_idx, chunk in enumerate(_chunkify(data, chunk_size)):
             listof_records = []
             if chunk_idx > 0:
-                logging.debug(f"Working on transaction #{chunk_idx+1}...")
+                logger.debug(f"Working on transaction #{chunk_idx+1}...")
             for key in chunk:
                 try:
                     rd_item = rdkit_func(data[key])
                     listof_records.append((key, rd_item.ToBinary()))  # metabolite or reaction
                 except ChemConversionError as error:
-                    logging.error(f"Something went wrong converting chemical '{key}': {error}")
+                    logger.error(f"Something went wrong converting chemical '{key}': {error}")
                 except RuleConversionError as error:
-                    logging.error(f"Something went wrong converting rule '{key}': {error}")
+                    logger.error(f"Something went wrong converting rule '{key}': {error}")
             self._db.executemany(f"insert into {table_name} values (?,?)", listof_records)
         self._db.commit()
 
@@ -295,11 +296,11 @@ class RuleBurner(object):
             # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
             # even if a generator is used as input; so we use pool.schedule and we do our own chunks to avoid saturating
             # the RAM.
-            logging.debug(f"Computing tasks in chunks of at most {chunk_size} couples (rule,  molecule) "
-                          f"with {max_workers} workers and a per-task timeout of {timeout} seconds.")
+            logger.debug(f"Computing tasks in chunks of at most {chunk_size} couples (rule,  molecule) "
+                         f"with {max_workers} workers and a per-task timeout of {timeout} seconds.")
             for chunk_idx, chunk in enumerate(_chunkify(self._gen_couples(rule_list, mol_list), chunk_size)):
                 if chunk_idx > 0:
-                    logging.debug(f"Working on task chunk #{chunk_idx+1}...")
+                    logger.debug(f"Working on task chunk #{chunk_idx+1}...")
                 # Submit all the tasks for this chunk
                 all_running_tasks = []  # list of Future objects
                 for rid, rd_rule, cid, rd_mol in chunk:
@@ -322,12 +323,12 @@ class RuleBurner(object):
                         if rd_mol_list:  # silently discard tasks without a match
                             yield result
                     except concurrent.futures.TimeoutError:
-                        logging.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
+                        logger.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
                         # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
                     except RuleFireError as error:
-                        logging.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
+                        logger.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
                     except pebble.ProcessExpired as error:
-                        logging.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
+                        logger.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
 
 
 def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs, with_stereo):
@@ -335,8 +336,8 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs
         if cid not in store:
             store[cid] = smiles
         elif store[cid] != smiles:
-            logging.warning(f"Metabolite {cid} is suspiciously associated to distinct SMILES. "
-                            f"Only the first one will be considered: {store[cid]} and {smiles}")
+            logger.warning(f"Metabolite {cid} is suspiciously associated to distinct SMILES. "
+                           f"Only the first one will be considered: {store[cid]} and {smiles}")
     rules = {}
     metabolites = {}
     # Load all valuable data in-memory
