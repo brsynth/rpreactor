@@ -50,6 +50,17 @@ class RuleBurner(object):
             diameter INTEGER DEFAULT NULL
         );
     """
+    _SQL_CREATETABLE_RESULTS = """
+        CREATE TABLE IF NOT EXISTS results (
+            sid TEXT NOT NULL,
+            rid TEXT NOT NULL,
+            pid TEXT,
+            pgroup INTEGER,
+            FOREIGN KEY (sid) REFERENCES molecules (id),
+            FOREIGN KEY (rid) REFERENCES rules (id),
+            FOREIGN KEY (pid) REFERENCES molecules (id)
+        );
+    """
 
     def __init__(self, database=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
@@ -60,7 +71,7 @@ class RuleBurner(object):
         self.db_path = database
         self.db.execute(self._SQL_CREATETABLE_MOLECULES)
         self.db.execute(self._SQL_CREATETABLE_RULES)
-        # TODO: add table "results" (watch out for indexes if we search for a previous result at each query!)
+        self.db.execute(self._SQL_CREATETABLE_RESULTS)
         self.db.row_factory = sqlite3.Row
         self.db.commit()
         self._chemicals = None
@@ -276,7 +287,7 @@ class RuleBurner(object):
                 yield rid, rd_rule, cid, rd_mol
 
     def _gen_records(self, data, rdkit_func, blob_colname, other_colnames):
-        """Helper generator of molecule or rule records."""
+        """Helper generator of molecule or rule records for insertion in the database."""
         for key, value in data.items():
             # values of 'data' are either Dict-like or directly the input for rdkit_func
             if other_colnames:
@@ -388,6 +399,7 @@ class RuleBurner(object):
                 # Submit all the tasks for this chunk
                 all_running_tasks = []  # list of Future objects
                 for rid, rd_rule, cid, rd_mol in chunk:
+                    # TODO: check if already in the results
                     task = (rid, cid, pool.schedule(RuleBurner._task_fire,
                                                     args=(rd_rule, rd_mol, self._with_hs, self._with_stereo),
                                                     timeout=timeout))
@@ -395,16 +407,38 @@ class RuleBurner(object):
                 # Gather the results
                 for i, (rid, cid, future) in enumerate(all_running_tasks):
                     try:
-                        rd_mol_list, inchikeys, inchis, smiles = future.result()
-                        result = {
-                            'rule_id': rid,
-                            'substrate_id': cid,
-                            'product_list': rd_mol_list,
-                            'product_inchikeys': inchikeys,
-                            'product_inchis': inchis,
-                            'product_smiles': smiles,
-                        }
-                        if rd_mol_list:  # silently discard tasks without a match
+                        rd_mol_list_list, inchikeys, inchis, smiles = future.result()
+                        if rd_mol_list_list:  # silently discard tasks without a match
+                            result = {
+                                'rule_id': rid,
+                                'substrate_id': cid,
+                                'product_list': rd_mol_list_list,  # TODO: replace by list of ids?
+                                'product_inchikeys': inchikeys,
+                                'product_inchis': inchis,
+                                'product_smiles': smiles,
+                            }
+                            # First, commit all the chemicals if they are not known
+                            next_valid_id = RuleBurner._get_highest_int(self.chemicals) + 1
+                            for idx1, rd_mol_list in enumerate(rd_mol_list_list):
+                                for idx2, rd_mol in enumerate(rd_mol_list):
+                                    # Is this chemical known?
+                                    this_inchi = inchis[idx1][idx2]
+                                    ans = self.db.execute("select id from molecules where inchi=? limit 1;", [this_inchi]).fetchone()
+                                    if ans:
+                                        this_id = ans['id']  # arbitrarily keep the first occurence
+                                        chemical_need_commit = False
+                                    else:
+                                        this_id = next_valid_id
+                                        chemical_need_commit = True
+                                        next_valid_id += 1
+                                    # Insert what needs to be inserted
+                                    if commit and chemical_need_commit:
+                                        if chemical_need_commit:
+                                            record = (this_id, rd_mol.ToBinary(), smiles[idx1][idx2], this_inchi,
+                                                      inchikeys[idx1][idx2], 1)
+                                            self.db.execute("insert into molecules values (?,?,?,?,?,?);", record)
+                                        self.db.execute("insert into results values (?,?,?,?);", (rid, cid, this_id, idx1))
+                            self.db.commit()
                             yield result
                     except concurrent.futures.TimeoutError:
                         logger.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
@@ -436,6 +470,7 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs
             rid = row["# Rule_ID"]
             rsmarts = row["Rule_SMARTS"]
             diameter = int(row["Diameter"])
+            # TODO add Reaction_direction
             if rid not in rules:
                 rules[rid] = {'rd_rule': rsmarts, 'diameter': diameter}  # must match database schema
             else:
