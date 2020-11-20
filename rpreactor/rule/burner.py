@@ -33,25 +33,40 @@ class RuleBurner(object):
     """
     # TODO: rename class to 'RuleManager' or something?
 
-    _SQL_CREATETABLE_MOLECULES = "CREATE TABLE IF NOT EXISTS molecules (id TEXT NOT NULL PRIMARY KEY, rd_mol BLOB NOT NULL)"
-    _SQL_CREATETABLE_RULES = "CREATE TABLE IF NOT EXISTS rules (id TEXT NOT NULL PRIMARY KEY, rd_rule BLOB NOT NULL)"
+    _SQL_CREATETABLE_MOLECULES = """
+        CREATE TABLE IF NOT EXISTS molecules (
+            id TEXT NOT NULL PRIMARY KEY,
+            rd_mol BLOB NOT NULL,
+            smiles TEXT NOT NULL,
+            inchi TEXT NOT NULL,
+            inchikey TEXT NOT NULL,
+            is_computed INTEGER NOT NULL DEFAULT 0
+        );
+    """
+    _SQL_CREATETABLE_RULES = """
+        CREATE TABLE IF NOT EXISTS rules (
+            id TEXT NOT NULL PRIMARY KEY,
+            rd_rule BLOB NOT NULL,
+            diameter INTEGER DEFAULT NULL
+        );
+    """
 
     def __init__(self, database=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
         # Set-up the database
         if database is None:
             database = ":memory:"
-        self._db = sqlite3.connect(database)  # warning: only current thread will be able to use it
+        self.db = sqlite3.connect(database)  # warning: only current thread will be able to use it
         self.db_path = database
-        self._db.execute(self._SQL_CREATETABLE_MOLECULES)
-        self._db.execute(self._SQL_CREATETABLE_RULES)
+        self.db.execute(self._SQL_CREATETABLE_MOLECULES)
+        self.db.execute(self._SQL_CREATETABLE_RULES)
         # TODO: add table "results" (watch out for indexes if we search for a previous result at each query!)
-        self._db.row_factory = sqlite3.Row
-        self._db.commit()
+        self.db.row_factory = sqlite3.Row
+        self.db.commit()
         self._chemicals = None
         self._rules = None
-        n_rules = self._db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
-        n_mols = self._db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
+        n_rules = self.db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
+        n_mols = self.db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
         logger.info(f"Connected to a database with {n_rules} rules and {n_mols} molecules (at '{database}').")
         # Sanitization
         self._with_hs = with_hs
@@ -63,14 +78,14 @@ class RuleBurner(object):
     def chemicals(self):
         """Returns a list of chemicals (molecules) identifier stored in the database."""
         if self._chemicals is None:
-            self._chemicals = [x['id'] for x in self._db.execute("SELECT id FROM molecules").fetchall()]
+            self._chemicals = [x['id'] for x in self.db.execute("SELECT id FROM molecules").fetchall()]
         return self._chemicals
 
     @property
     def rules(self):
         """Returns a list of rules identifier stored in the database."""
         if self._rules is None:
-            self._rules = [x['id'] for x in self._db.execute("SELECT id FROM rules").fetchall()]
+            self._rules = [x['id'] for x in self.db.execute("SELECT id FROM rules").fetchall()]
         return self._rules
 
     @staticmethod
@@ -239,18 +254,18 @@ class RuleBurner(object):
     def _gen_rules(self, ids):
         """Generator of fully initialized/standardized RDKit reaction objects (rules)."""
         if ids is None:
-            query = self._db.execute("select * from rules;")
+            query = self.db.execute("select * from rules;")
         else:
-            query = self._db.execute(f"select * from rules where rules.id in ({','.join(['?'] * len(ids))})", ids)
+            query = self.db.execute(f"select * from rules where rules.id in ({','.join(['?'] * len(ids))})", ids)
         for row in query:
             yield row['id'], Chem.rdChemReactions.ChemicalReaction(row['rd_rule'])
 
     def _gen_chemicals(self, ids):
         """Generator of fully initialized/standardized RDKit molecule objects (chemicals)."""
         if ids is None:
-            query = self._db.execute("select * from molecules;")
+            query = self.db.execute("select * from molecules;")
         else:
-            query = self._db.execute(f"select * from molecules where molecules.id in ({','.join(['?'] * len(ids))})", ids)
+            query = self.db.execute(f"select * from molecules where molecules.id in ({','.join(['?'] * len(ids))})", ids)
         for row in query:
             yield row['id'], Chem.Mol(row['rd_mol'])
 
@@ -260,60 +275,94 @@ class RuleBurner(object):
             for cid, rd_mol in self._gen_chemicals(mol_list):
                 yield rid, rd_rule, cid, rd_mol
 
-    def _insert_something(self, data, table_name, rdkit_func, chunk_size):
-        """Helper function to insert something (metabolite or reaction) into the database."""
-        assert table_name in ["molecules", "rules"], "UNEXPECTED: 'table_name' must be 'molecules' or 'rules'."
+    def _gen_records(self, data, rdkit_func, blob_colname, other_colnames):
+        """Helper generator of molecule or rule records."""
+        for key, value in data.items():
+            # values of 'data' are either Dict-like or directly the input for rdkit_func
+            if other_colnames:
+                item = value[blob_colname]
+                args = [value[x] for x in other_colnames]
+            else:
+                item = value
+                args = []
+            try:
+                rd_item = rdkit_func(item)
+                if blob_colname == "rd_mol":  # Special case: molecules always have smiles, inchi, inchikey
+                    smiles = Chem.MolToSmiles(rd_item)
+                    inchi = Chem.MolToInchi(rd_item)
+                    inchikey = Chem.MolToInchiKey(rd_item)
+                    args = [smiles, inchi, inchikey] + args
+                record = (key, rd_item.ToBinary()) if not args else (key, rd_item.ToBinary(), *args)
+                yield record
+            except ChemConversionError as error:
+                logger.error(f"Something went wrong converting chemical '{key}': {error}")
+            except RuleConversionError as error:
+                logger.error(f"Something went wrong converting rule '{key}': {error}")
+
+    def _insert_chemicals(self, data, rdkit_func):
+        """Helper function to insert chemicals into the database."""
         # First, convert data to a Dict-like structure with key as identifiers
-        previous_ids = self.rules if table_name == "rules" else self.chemicals
         if not isinstance(data, collections.Mapping):
-            offset = RuleBurner._get_highest_int(previous_ids) + 1 if previous_ids else 0
+            offset = RuleBurner._get_highest_int(self.chemicals) + 1 if self.chemicals else 0
             data = {k+offset: v for k, v in enumerate(data)}
-        # Standardize items and add them to the database
-        n_blocks = len(data) // chunk_size   # 0-based
-        logger.debug(f"Inserting {len(data)} RDKit objects in the database as {n_blocks+1} transactions of "
-                     f"at most {chunk_size} elements.")
-        for chunk_idx, chunk in enumerate(_chunkify(data, chunk_size)):
-            listof_records = []
-            if chunk_idx > 0:
-                logger.debug(f"Working on transaction #{chunk_idx+1}...")
-            for key in chunk:
-                try:
-                    rd_item = rdkit_func(data[key])
-                    listof_records.append((key, rd_item.ToBinary()))  # metabolite or reaction
-                except ChemConversionError as error:
-                    logger.error(f"Something went wrong converting chemical '{key}': {error}")
-                except RuleConversionError as error:
-                    logger.error(f"Something went wrong converting rule '{key}': {error}")
-            self._db.executemany(f"insert into {table_name} values (?,?)", listof_records)
-        self._db.commit()
-        # Reset the list of identifiers
-        if table_name == "rules":
-            self._rules = None
+        # Sniff the structure of data values (Dict-like or plain text)
+        example = data[next(iter(data))]
+        if isinstance(example, collections.Mapping):
+            other_colnames = [x for x in example.keys() if x != 'rd_mol']
         else:
-            self._chemicals = None
+            other_colnames = []
+        # Standardize items and generate the RDKit objects
+        logger.debug(f"Inserting {len(data)} RDKit chemicals into the database.")
+        cols_str = ','.join(['id', 'rd_mol', 'smiles', 'inchi', 'inchikey'] + other_colnames)
+        values_str = ','.join(['?'] * (5 + len(other_colnames)))
+        self.db.executemany(f"insert into molecules ({cols_str}) values ({values_str})",
+                            self._gen_records(data, rdkit_func, 'rd_mol', other_colnames))
+        self.db.commit()
+        self._chemicals = None  # Reset the list of identifiers
 
-    def insert_rsmarts(self, data, chunk_size=10000):
+    def _insert_rules(self, data, rdkit_func):
+        """Helper function to insert rules into the database."""
+        # First, convert data to a Dict-like structure with key as identifiers
+        if not isinstance(data, collections.Mapping):
+            offset = RuleBurner._get_highest_int(self.rules) + 1 if self.rules else 0
+            data = {k+offset: v for k, v in enumerate(data)}
+        # Sniff the structure of data values (Dict-like or plain text)
+        example = data[next(iter(data))]
+        if isinstance(example, collections.Mapping):
+            other_colnames = [x for x in example.keys() if x != 'rd_rule']
+        else:
+            other_colnames = []
+        # Standardize items and generate the RDKit objects
+        logger.debug(f"Inserting {len(data)} RDKit rules into the database.")
+        cols_str = ','.join(['id', 'rd_rule'] + other_colnames)
+        values_str = ','.join(['?'] * (2 + len(other_colnames)))
+        self.db.executemany(f"insert into rules ({cols_str}) values ({values_str})",
+                            self._gen_records(data, rdkit_func, 'rd_rule', other_colnames))
+        self.db.commit()
+        self._rules = None  # Reset the list of identifiers
+
+    def insert_rsmarts(self, data):
         """Insert reaction rules defined as reaction SMARTS into the database."""
-        self._insert_something(data, "rules", self._init_rdkit_rule, chunk_size)
+        self._insert_rules(data, self._init_rdkit_rule)
 
-    def insert_inchi(self, data, chunk_size=10000):
+    def insert_inchi(self, data):
         """Insert molecules defined as InChI into the database."""
-        self._insert_something(data, "molecules", self._init_rdkit_mol_from_inchi, chunk_size)
+        self._insert_chemicals(data, self._init_rdkit_mol_from_inchi)
 
-    def insert_smiles(self, data, chunk_size=10000):
+    def insert_smiles(self, data):
         """Insert molecules defined as InChI into the database."""
-        self._insert_something(data, "molecules", self._init_rdkit_mol_from_smiles, chunk_size)
+        self._insert_chemicals(data, self._init_rdkit_mol_from_smiles)
 
     def create_indexes(self):
         """Create SQL indexes on the database."""
-        self._db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
-        self._db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
-        self._db.commit()
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
+        self.db.commit()
 
     def dump_to_sql(self, path):
         """Dump the database as a SQL file."""
         with open(path, 'w') as f:
-            for line in self._db.iterdump():
+            for line in self.db.iterdump():
                 f.write(f'{line}\n')
 
     def drop_results(self):
@@ -386,11 +435,12 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs
             # NB: rule identifier may be duplicated over several rows but must match the same RSMARTS
             rid = row["# Rule_ID"]
             rsmarts = row["Rule_SMARTS"]
+            diameter = int(row["Diameter"])
             if rid not in rules:
-                rules[rid] = rsmarts
+                rules[rid] = {'rd_rule': rsmarts, 'diameter': diameter}  # must match database schema
             else:
-                assert rules[rid] == rsmarts, f"UNEXPECTED: rule {rid} from {path_retrosmarts_tsv} has " \
-                                              f"mismatching RSMARTS: {rules[rid]} and {rsmarts}"
+                assert rules[rid]['rd_rule'] == rsmarts, f"UNEXPECTED: rule {rid} from {path_retrosmarts_tsv} has " \
+                                                         f"mismatching RSMARTS: {rules[rid]} and {rsmarts}"
             # ... and 1 substrate ...
             helper_metabolite(metabolites, row["Substrate_ID"], row["Substrate_SMILES"])
             # ... and N products
