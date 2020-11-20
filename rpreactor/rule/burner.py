@@ -42,6 +42,7 @@ class RuleBurner(object):
         if database is None:
             database = ":memory:"
         self._db = sqlite3.connect(database)  # warning: only current thread will be able to use it
+        self.db_path = database
         self._db.execute(self._SQL_CREATETABLE_MOLECULES)
         self._db.execute(self._SQL_CREATETABLE_RULES)
         # TODO: add table "results" (watch out for indexes if we search for a previous result at each query!)
@@ -241,7 +242,7 @@ class RuleBurner(object):
             query = self._db.execute("select * from rules;")
         else:
             query = self._db.execute(f"select * from rules where rules.id in ({','.join(['?'] * len(ids))})", ids)
-        for row in query.fetchall():
+        for row in query:
             yield row['id'], Chem.rdChemReactions.ChemicalReaction(row['rd_rule'])
 
     def _gen_chemicals(self, ids):
@@ -250,12 +251,11 @@ class RuleBurner(object):
             query = self._db.execute("select * from molecules;")
         else:
             query = self._db.execute(f"select * from molecules where molecules.id in ({','.join(['?'] * len(ids))})", ids)
-        for row in query.fetchall():
+        for row in query:
             yield row['id'], Chem.Mol(row['rd_mol'])
 
     def _gen_couples(self, rule_list, mol_list):
         """Generator of fully initialized/standardized RDKit couples of rules and molecules."""
-        self._gen_rules(rule_list), self._gen_chemicals(mol_list)
         for rid, rd_rule in self._gen_rules(rule_list):
             for cid, rd_mol in self._gen_chemicals(mol_list):
                 yield rid, rd_rule, cid, rd_mol
@@ -364,6 +364,9 @@ class RuleBurner(object):
                         logger.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
                     except pebble.ProcessExpired as error:
                         logger.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
+                # Attempt to free the memory
+                del all_running_tasks
+                del chunk
 
 
 def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs, with_stereo):
