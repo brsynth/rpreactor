@@ -352,6 +352,31 @@ class RuleBurner(object):
         self.db.commit()
         self._rules = None  # Reset the list of identifiers
 
+    def _insert_result(self, rid, cid, rd_mol_list_list, inchikeys, inchis, smiles):
+        """Helper to insert results and newly found molecules."""
+        # First, commit all the chemicals if they are not known
+        next_valid_id = RuleBurner._get_highest_int(self.chemicals) + 1
+        for idx1, rd_mol_list in enumerate(rd_mol_list_list):
+            for idx2, rd_mol in enumerate(rd_mol_list):
+                # Is this chemical known?
+                this_inchi = inchis[idx1][idx2]
+                ans = self.db.execute("select id from molecules where inchi=? limit 1;",
+                                      [this_inchi]).fetchone()
+                if ans:
+                    this_id = ans['id']  # arbitrarily keep the first occurence
+                    chemical_need_commit = False
+                else:
+                    this_id = next_valid_id
+                    chemical_need_commit = True
+                    next_valid_id += 1
+                # Insert what needs to be inserted
+                if chemical_need_commit:
+                    record = (this_id, rd_mol.ToBinary(), smiles[idx1][idx2], this_inchi,
+                              inchikeys[idx1][idx2], 1)
+                    self.db.execute("insert into molecules values (?,?,?,?,?,?);", record)
+                self.db.execute("insert into results values (?,?,?,?);", (rid, cid, this_id, idx1))
+        self.db.commit()
+
     def insert_rsmarts(self, data):
         """Insert reaction rules defined as reaction SMARTS into the database."""
         self._insert_rules(data, self._init_rdkit_rule)
@@ -377,8 +402,10 @@ class RuleBurner(object):
                 f.write(f'{line}\n')
 
     def drop_results(self):
-        """Drop the results table."""
-        raise NotImplementedError  # TODO
+        """Drop the results table and computed metabolites."""
+        self.db.execute("DELETE FROM results;")
+        self.db.execute("DELETE FROM molecules WHERE is_computed=1;")
+        self.db.commit()
 
     def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60, chunk_size=1000):
         """Apply all rules on all chemicals and returns a generator over the results.
@@ -417,28 +444,8 @@ class RuleBurner(object):
                                 'product_inchis': inchis,
                                 'product_smiles': smiles,
                             }
-                            # First, commit all the chemicals if they are not known
-                            next_valid_id = RuleBurner._get_highest_int(self.chemicals) + 1
-                            for idx1, rd_mol_list in enumerate(rd_mol_list_list):
-                                for idx2, rd_mol in enumerate(rd_mol_list):
-                                    # Is this chemical known?
-                                    this_inchi = inchis[idx1][idx2]
-                                    ans = self.db.execute("select id from molecules where inchi=? limit 1;", [this_inchi]).fetchone()
-                                    if ans:
-                                        this_id = ans['id']  # arbitrarily keep the first occurence
-                                        chemical_need_commit = False
-                                    else:
-                                        this_id = next_valid_id
-                                        chemical_need_commit = True
-                                        next_valid_id += 1
-                                    # Insert what needs to be inserted
-                                    if commit and chemical_need_commit:
-                                        if chemical_need_commit:
-                                            record = (this_id, rd_mol.ToBinary(), smiles[idx1][idx2], this_inchi,
-                                                      inchikeys[idx1][idx2], 1)
-                                            self.db.execute("insert into molecules values (?,?,?,?,?,?);", record)
-                                        self.db.execute("insert into results values (?,?,?,?);", (rid, cid, this_id, idx1))
-                            self.db.commit()
+                            if commit:
+                                self._insert_result(rid, cid, rd_mol_list_list, inchikeys, inchis, smiles)
                             yield result
                     except concurrent.futures.TimeoutError:
                         logger.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
