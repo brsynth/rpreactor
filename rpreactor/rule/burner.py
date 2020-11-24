@@ -280,11 +280,24 @@ class RuleBurner(object):
         for row in query:
             yield row['id'], Chem.Mol(row['rd_mol'])
 
-    def _gen_couples(self, rule_list, mol_list):
+    def _gen_couples(self, rule_mol):
         """Generator of fully initialized/standardized RDKit couples of rules and molecules."""
-        for rid, rd_rule in self._gen_rules(rule_list):
-            for cid, rd_mol in self._gen_chemicals(mol_list):
-                yield rid, rd_rule, cid, rd_mol
+        # Make lists of all data that we need
+        all_rid = set()
+        all_cid = set()
+        for rid, cid in rule_mol:
+            all_rid.add(rid)
+            all_cid.add(cid)
+        logger.debug(rule_mol)
+        # Gather everything (warning: watch out for memory limitation)
+        rule_data = {k: v for k, v in self._gen_rules(list(all_rid))}
+        mol_data = {k: v for k, v in self._gen_chemicals(list(all_cid))}
+        # Finally, yield the data
+        for rid, cid in rule_mol:
+            try:
+                yield rid, rule_data[rid], cid, mol_data[cid]
+            except KeyError as err:
+                logger.warning(f"It seems that data for {err} is not reachable. Is it a valid identifier?")
 
     def _gen_records(self, data, rdkit_func, blob_colname, other_colnames):
         """Helper generator of molecule or rule records for insertion in the database."""
@@ -310,41 +323,43 @@ class RuleBurner(object):
             except RuleConversionError as error:
                 logger.error(f"Something went wrong converting rule '{key}': {error}")
 
-    def _gen_precomputed_results(self, rule_list, mol_list):
+    def _gen_precomputed_results(self, rule_mol):
         """Yields results found in the database."""
-        # TODO: this is not exactly the same behavior as an answer from a computed task because the different
-        # "solutions" (i.e. when a rule can be applied several time on the same substrate) will be yielded as different
-        # results objects: what do we want?
-        # First, search for all previous results and pack them by group (i.e. by solution)
-        query_results_str = f"""
-        SELECT sid, rid, group_concat(pid, '@@'), pgroup
+        query_results_str = """
+        SELECT sid, rid, pid, pgroup, smiles, inchi, inchikey, rd_mol
         FROM results
-        WHERE sid in ({','.join(['?'] * len(mol_list))}) AND rid in ({','.join(['?'] * len(rule_list))})
-        GROUP BY sid, rid, pgroup;
+        INNER JOIN molecules ON results.pid=molecules.id
+        WHERE sid=? AND rid=?
+        ORDER BY pgroup;
         """
-        for row in self.db.execute(query_results_str, [*mol_list, *rule_list]):
-            result = {
-                'rule_id': row['rid'],
-                'substrate_id': row['sid'],
-                'product_list': [[]],
-                'product_inchikeys': [[]],
-                'product_inchis': [[]],
-                'product_smiles': [[]],
-            }
-            coproducts = row[2].split("@@")  # among a solution, metabolites sharing the same "pgroup" are coproducts
-            query_molecules_str = f"""
-            SELECT id, smiles, inchi, inchikey, rd_mol
-            FROM molecules
-            WHERE id in ({','.join(['?'] * len(coproducts))})
-            """
-            for row_mol in self.db.execute(query_molecules_str, coproducts):
-                result['product_list'][0].append(Chem.Mol(row_mol['rd_mol']))
-                result['product_inchikeys'][0].append(row_mol['inchikey'])
-                result['product_inchis'][0].append(row_mol['inchi'])
-                result['product_smiles'][0].append(row_mol['smiles'])
-            yield result
+        for rule, mol in rule_mol:
+            result = None
+            pgroup = None  # pgroup is a 0-based counter for each distinct solution
+            for row in self.db.execute(query_results_str, [rule, mol]):
+                if pgroup is None:             # init a new result object
+                    result = {
+                        'rule_id': rule,
+                        'substrate_id': mol,
+                        'product_list': [],
+                        'product_inchikeys': [],
+                        'product_inchis': [],
+                        'product_smiles': [],
+                    }
+                if row['pgroup'] != pgroup:    # new group => a solution of one rule on one chemical
+                    result['product_list'].append([Chem.Mol(row['rd_mol'])])
+                    result['product_inchikeys'].append([row['inchikey']])
+                    result['product_inchis'].append([row['inchi']])
+                    result['product_smiles'].append([row['smiles']])
+                elif row['pgroup'] == pgroup:  # metabolites sharing the same "pgroup" are coproducts of the same solution
+                    result['product_list'][pgroup].append(Chem.Mol(row['rd_mol']))
+                    result['product_inchikeys'][pgroup].append(row['inchikey'])
+                    result['product_inchis'][pgroup].append(row['inchi'])
+                    result['product_smiles'][pgroup].append(row['smiles'])
+                pgroup = row['pgroup']  # remember last solution index
+            if result:
+                yield result
 
-    def _gen_compute(self, rule_list, mol_list, commit, max_workers, timeout, chunk_size):
+    def _gen_compute_results(self, rule_mol, commit, max_workers, timeout, chunk_size):
         """Yield new results using RDKit to apply a rule on a chemical."""
         with pebble.ProcessPool(max_workers=max_workers) as pool:
             # Prepare chunks of tasks
@@ -353,12 +368,12 @@ class RuleBurner(object):
             # the RAM.
             logger.debug(f"Computing tasks in chunks of at most {chunk_size} couples (rule,  molecule) "
                          f"with {max_workers} workers and a per-task timeout of {timeout} seconds.")
-            for chunk_idx, chunk in enumerate(_chunkify(self._gen_couples(rule_list, mol_list), chunk_size)):
+            for chunk_idx, chunk in enumerate(_chunkify(rule_mol, chunk_size)):
                 if chunk_idx > 0:
                     logger.debug(f"Working on task chunk #{chunk_idx+1}...")
                 # Submit all the tasks for this chunk, and retrieve previous results
                 all_running_tasks = []  # list of Future objects
-                for rid, rd_rule, cid, rd_mol in chunk:
+                for rid, rd_rule, cid, rd_mol in self._gen_couples(chunk):
                     task = (rid, cid, pool.schedule(RuleBurner._task_fire,
                                                     args=(rd_rule, rd_mol, self._with_hs, self._with_stereo),
                                                     timeout=timeout))
@@ -388,7 +403,6 @@ class RuleBurner(object):
                         logger.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
                 # Attempt to free the memory
                 del all_running_tasks
-                del chunk
 
     def _insert_chemicals(self, data, rdkit_func):
         """Helper function to insert chemicals into the database."""
@@ -487,27 +501,17 @@ class RuleBurner(object):
         self.db.execute("DELETE FROM molecules WHERE is_computed=1;")
         self.db.commit()
 
-    def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60, chunk_size=1000,
-                discard_found_rules=True, discard_found_chem=True):
-        """Apply all rules on all chemicals and returns a generator over the results.
-
-        Importantly, if <rule_list> is None (resp. <mol_list>), then ALL rules (resp. molecules) found in the database
-        will be used.
-        """
-        # "None" means everything
-        if rule_list is None:
-            rule_list = self.rules
-        if mol_list is None:
-            mol_list = self.chemicals
+    def compute(self, rule_mol=None, commit=False, max_workers=1, timeout=60, chunk_size=1000):
+        """Apply all rules on all chemicals and returns a generator over the results."""
+        # "None" means all rules against all mol
+        if rule_mol is None:
+            rule_mol = [(rule, mol) for rule in self.rules for mol in self.chemicals]
         # First of all, yield precomputed results
-        for result in self._gen_precomputed_results(rule_list, mol_list):
-            if discard_found_rules:
-                rule_list.remove(result['rule_id'])
-            if discard_found_chem:
-                mol_list.remove(result['substrate_id'])
+        for result in self._gen_precomputed_results(rule_mol):
+            rule_mol.remove((result['rule_id'], result['substrate_id']))  # TODO: check with list of list
             yield result
         # Only then, continue with non pre-computed results
-        for result in self._gen_compute(rule_list, mol_list, commit, max_workers, timeout, chunk_size):
+        for result in self._gen_compute_results(rule_mol, commit, max_workers, timeout, chunk_size):
             yield result
 
 
