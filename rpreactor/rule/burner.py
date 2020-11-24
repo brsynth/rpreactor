@@ -310,6 +310,86 @@ class RuleBurner(object):
             except RuleConversionError as error:
                 logger.error(f"Something went wrong converting rule '{key}': {error}")
 
+    def _gen_precomputed_results(self, rule_list, mol_list):
+        """Yields results found in the database."""
+        # TODO: this is not exactly the same behavior as an answer from a computed task because the different
+        # "solutions" (i.e. when a rule can be applied several time on the same substrate) will be yielded as different
+        # results objects: what do we want?
+        # First, search for all previous results and pack them by group (i.e. by solution)
+        query_results_str = f"""
+        SELECT sid, rid, group_concat(pid, '@@'), pgroup
+        FROM results
+        WHERE sid in ({','.join(['?'] * len(mol_list))}) AND rid in ({','.join(['?'] * len(rule_list))})
+        GROUP BY sid, rid, pgroup;
+        """
+        for row in self.db.execute(query_results_str, [*mol_list, *rule_list]):
+            result = {
+                'rule_id': row['rid'],
+                'substrate_id': row['sid'],
+                'product_list': [[]],
+                'product_inchikeys': [[]],
+                'product_inchis': [[]],
+                'product_smiles': [[]],
+            }
+            coproducts = row[2].split("@@")  # among a solution, metabolites sharing the same "pgroup" are coproducts
+            query_molecules_str = f"""
+            SELECT id, smiles, inchi, inchikey, rd_mol
+            FROM molecules
+            WHERE id in ({','.join(['?'] * len(coproducts))})
+            """
+            for row_mol in self.db.execute(query_molecules_str, coproducts):
+                result['product_list'][0].append(Chem.Mol(row_mol['rd_mol']))
+                result['product_inchikeys'][0].append(row_mol['inchikey'])
+                result['product_inchis'][0].append(row_mol['inchi'])
+                result['product_smiles'][0].append(row_mol['smiles'])
+            yield result
+
+    def _gen_compute(self, rule_list, mol_list, commit, max_workers, timeout, chunk_size):
+        """Yield new results using RDKit to apply a rule on a chemical."""
+        with pebble.ProcessPool(max_workers=max_workers) as pool:
+            # Prepare chunks of tasks
+            # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
+            # even if a generator is used as input; so we use pool.schedule and we do our own chunks to avoid saturating
+            # the RAM.
+            logger.debug(f"Computing tasks in chunks of at most {chunk_size} couples (rule,  molecule) "
+                         f"with {max_workers} workers and a per-task timeout of {timeout} seconds.")
+            for chunk_idx, chunk in enumerate(_chunkify(self._gen_couples(rule_list, mol_list), chunk_size)):
+                if chunk_idx > 0:
+                    logger.debug(f"Working on task chunk #{chunk_idx+1}...")
+                # Submit all the tasks for this chunk, and retrieve previous results
+                all_running_tasks = []  # list of Future objects
+                for rid, rd_rule, cid, rd_mol in chunk:
+                    task = (rid, cid, pool.schedule(RuleBurner._task_fire,
+                                                    args=(rd_rule, rd_mol, self._with_hs, self._with_stereo),
+                                                    timeout=timeout))
+                    all_running_tasks.append(task)
+                # Gather the results
+                for i, (rid, cid, future) in enumerate(all_running_tasks):
+                    try:
+                        rd_mol_list_list, inchikeys, inchis, smiles = future.result()
+                        if rd_mol_list_list:  # silently discard tasks without a match
+                            result = {
+                                'rule_id': rid,
+                                'substrate_id': cid,
+                                'product_list': rd_mol_list_list,  # TODO: replace by list of ids?
+                                'product_inchikeys': inchikeys,
+                                'product_inchis': inchis,
+                                'product_smiles': smiles,
+                            }
+                            if commit:
+                                self._insert_result(rid, cid, rd_mol_list_list, inchikeys, inchis, smiles)
+                            yield result
+                    except concurrent.futures.TimeoutError:
+                        logger.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
+                        # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
+                    except RuleFireError as error:
+                        logger.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
+                    except pebble.ProcessExpired as error:
+                        logger.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
+                # Attempt to free the memory
+                del all_running_tasks
+                del chunk
+
     def _insert_chemicals(self, data, rdkit_func):
         """Helper function to insert chemicals into the database."""
         # First, convert data to a Dict-like structure with key as identifiers
@@ -407,56 +487,28 @@ class RuleBurner(object):
         self.db.execute("DELETE FROM molecules WHERE is_computed=1;")
         self.db.commit()
 
-    def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60, chunk_size=1000):
+    def compute(self, rule_list=None, mol_list=None, commit=False, max_workers=1, timeout=60, chunk_size=1000,
+                discard_found_rules=True, discard_found_chem=True):
         """Apply all rules on all chemicals and returns a generator over the results.
 
         Importantly, if <rule_list> is None (resp. <mol_list>), then ALL rules (resp. molecules) found in the database
         will be used.
         """
-        with pebble.ProcessPool(max_workers=max_workers) as pool:
-            # Prepare chunks of tasks
-            # NB: it seems that pool.map does not avoid tasks to hold resources (memory) until they are consumed
-            # even if a generator is used as input; so we use pool.schedule and we do our own chunks to avoid saturating
-            # the RAM.
-            logger.debug(f"Computing tasks in chunks of at most {chunk_size} couples (rule,  molecule) "
-                         f"with {max_workers} workers and a per-task timeout of {timeout} seconds.")
-            for chunk_idx, chunk in enumerate(_chunkify(self._gen_couples(rule_list, mol_list), chunk_size)):
-                if chunk_idx > 0:
-                    logger.debug(f"Working on task chunk #{chunk_idx+1}...")
-                # Submit all the tasks for this chunk
-                all_running_tasks = []  # list of Future objects
-                for rid, rd_rule, cid, rd_mol in chunk:
-                    # TODO: check if already in the results
-                    task = (rid, cid, pool.schedule(RuleBurner._task_fire,
-                                                    args=(rd_rule, rd_mol, self._with_hs, self._with_stereo),
-                                                    timeout=timeout))
-                    all_running_tasks.append(task)
-                # Gather the results
-                for i, (rid, cid, future) in enumerate(all_running_tasks):
-                    try:
-                        rd_mol_list_list, inchikeys, inchis, smiles = future.result()
-                        if rd_mol_list_list:  # silently discard tasks without a match
-                            result = {
-                                'rule_id': rid,
-                                'substrate_id': cid,
-                                'product_list': rd_mol_list_list,  # TODO: replace by list of ids?
-                                'product_inchikeys': inchikeys,
-                                'product_inchis': inchis,
-                                'product_smiles': smiles,
-                            }
-                            if commit:
-                                self._insert_result(rid, cid, rd_mol_list_list, inchikeys, inchis, smiles)
-                            yield result
-                    except concurrent.futures.TimeoutError:
-                        logger.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
-                        # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
-                    except RuleFireError as error:
-                        logger.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
-                    except pebble.ProcessExpired as error:
-                        logger.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
-                # Attempt to free the memory
-                del all_running_tasks
-                del chunk
+        # "None" means everything
+        if rule_list is None:
+            rule_list = self.rules
+        if mol_list is None:
+            mol_list = self.chemicals
+        # First of all, yield precomputed results
+        for result in self._gen_precomputed_results(rule_list, mol_list):
+            if discard_found_rules:
+                rule_list.remove(result['rule_id'])
+            if discard_found_chem:
+                mol_list.remove(result['substrate_id'])
+            yield result
+        # Only then, continue with non pre-computed results
+        for result in self._gen_compute(rule_list, mol_list, commit, max_workers, timeout, chunk_size):
+            yield result
 
 
 def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs, with_stereo):
