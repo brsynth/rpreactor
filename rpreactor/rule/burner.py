@@ -47,7 +47,8 @@ class RuleBurner(object):
         CREATE TABLE IF NOT EXISTS rules (
             id TEXT NOT NULL PRIMARY KEY,
             rd_rule BLOB NOT NULL,
-            diameter INTEGER DEFAULT NULL
+            diameter INTEGER DEFAULT NULL,
+            direction INTEGER DEFAULT 0 CHECK (direction in (-1, 0, 1))
         );
     """
     _SQL_CREATETABLE_RESULTS = """
@@ -78,7 +79,9 @@ class RuleBurner(object):
         self._rules = None
         n_rules = self.db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
         n_mols = self.db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
-        logger.info(f"Connected to a database with {n_rules} rules and {n_mols} molecules (at '{database}').")
+        n_res = self.db.execute("SELECT count(*) FROM results").fetchone()['count(*)']
+        logger.info(f"Connected to a database with {n_rules} rules, {n_mols} molecules, "
+                    f"and {n_res} results (at '{database}').")
         # Sanitization
         self._with_hs = with_hs
         self._with_stereo = with_stereo
@@ -198,7 +201,7 @@ class RuleBurner(object):
                 list_smiles = list()
                 for rdmol in list_rdmol:
                     # Get & check depictions
-                    inchikey = Chem.MolToInchiKey(rdmol)  # TODO: this part could be optimized
+                    inchikey = Chem.MolToInchiKey(rdmol)
                     inchi = Chem.MolToInchi(rdmol)
                     smiles = Chem.MolToSmiles(rdmol)
                     if not all([inchikey, inchi, smiles]):
@@ -329,7 +332,7 @@ class RuleBurner(object):
         SELECT sid, rid, pid, pgroup, smiles, inchi, inchikey, rd_mol
         FROM results
         INNER JOIN molecules ON results.pid=molecules.id
-        WHERE sid=? AND rid=?
+        WHERE rid=? AND sid=?
         ORDER BY pgroup;
         """
         for rule, mol in rule_mol:
@@ -468,6 +471,7 @@ class RuleBurner(object):
                     record = (this_id, rd_mol.ToBinary(), smiles[idx1][idx2], this_inchi,
                               inchikeys[idx1][idx2], 1)
                     self.db.execute("insert into molecules values (?,?,?,?,?,?);", record)
+                    self._chemicals.append(str(this_id))  # manual update of the list of used identifiers (kinda dangerous)
                 self.db.execute("insert into results values (?,?,?,?);", (rid, cid, this_id, idx1))
         self.db.commit()
 
@@ -487,6 +491,7 @@ class RuleBurner(object):
         """Create SQL indexes on the database."""
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_results ON results(rid, sid);")
         self.db.commit()
 
     def dump_to_sql(self, path):
@@ -501,14 +506,17 @@ class RuleBurner(object):
         self.db.execute("DELETE FROM molecules WHERE is_computed=1;")
         self.db.commit()
 
-    def compute(self, rule_mol=None, commit=False, max_workers=1, timeout=60, chunk_size=1000):
+    def compute(self, rule_mol, commit=False, max_workers=1, timeout=60, chunk_size=1000):
         """Apply all rules on all chemicals and returns a generator over the results."""
         # "None" means all rules against all mol
         if rule_mol is None:
             rule_mol = [(rule, mol) for rule in self.rules for mol in self.chemicals]
         # First of all, yield precomputed results
         for result in self._gen_precomputed_results(rule_mol):
-            rule_mol.remove((result['rule_id'], result['substrate_id']))  # TODO: check with list of list
+            try:
+                rule_mol.remove((result['rule_id'], result['substrate_id']))
+            except ValueError:  # (rule_id, substrate_id) was not found... could it be a list?
+                rule_mol.remove([result['rule_id'], result['substrate_id']])
             yield result
         # Only then, continue with non pre-computed results
         for result in self._gen_compute_results(rule_mol, commit, max_workers, timeout, chunk_size):
@@ -523,32 +531,38 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs
             logger.warning(f"Metabolite {cid} is suspiciously associated to distinct SMILES. "
                            f"Only the first one will be considered: {store[cid]} and {smiles}")
     rules = {}
-    metabolites = {}
+    metabolites = {}  # both substrate and products
+    results = set()   # all "obvious" results that directly come from the reaction database (no promiscuity)
     # Load all valuable data in-memory
     # NB: is this file small enough that we do not need to chunk it?
     with open(path_retrosmarts_tsv) as hdl:
         for row in csv.DictReader(hdl, delimiter='\t'):
+            # each row is a reaction rule automatically generated from a known metabolic reaction
             # each row contains 1 rule...
             # NB: rule identifier may be duplicated over several rows but must match the same RSMARTS
             rid = row["# Rule_ID"]
             rsmarts = row["Rule_SMARTS"]
             diameter = int(row["Diameter"])
-            # TODO add Reaction_direction
+            direction = int(row["Reaction_direction"])  # -1, 0, 1 ==> reversed, both, forward
             if rid not in rules:
-                rules[rid] = {'rd_rule': rsmarts, 'diameter': diameter}  # must match database schema
+                # warning: keys must match database schema
+                rules[rid] = {'rd_rule': rsmarts, 'diameter': diameter, 'direction': direction}
             else:
                 assert rules[rid]['rd_rule'] == rsmarts, f"UNEXPECTED: rule {rid} from {path_retrosmarts_tsv} has " \
                                                          f"mismatching RSMARTS: {rules[rid]} and {rsmarts}"
             # ... and 1 substrate ...
-            helper_metabolite(metabolites, row["Substrate_ID"], row["Substrate_SMILES"])
-            # ... and N products
+            sid = row["Substrate_ID"]
+            helper_metabolite(metabolites, sid, row["Substrate_SMILES"])
+            # ... and N coproducts
             smiles_list = row["Product_SMILES"].split('.')
-            for idx, cid in enumerate(row["Product_IDs"].split('.')):
-                helper_metabolite(metabolites, cid, smiles_list[idx])
+            for idx, pid in enumerate(row["Product_IDs"].split('.')):
+                helper_metabolite(metabolites, pid, smiles_list[idx])
+                results.add((rid, sid, pid, 0))  # we know there is only one solution (pgroup is unique)
     # Create the database
     o = RuleBurner(database=path_sqlite, with_hs=with_hs, with_stereo=with_stereo)
     o.insert_rsmarts(rules)
     o.insert_smiles(metabolites)
+    o.db.executemany("INSERT INTO results VALUES (?,?,?,?);", list(results))
     o.create_indexes()
 
 
