@@ -63,13 +63,13 @@ class RuleBurner(object):
         );
     """
 
-    def __init__(self, database=None, with_hs=False, with_stereo=False):
+    def __init__(self, db_path=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
         # Set-up the database
-        if database is None:
-            database = ":memory:"
-        self.db = sqlite3.connect(database)  # warning: only current thread will be able to use it
-        self.db_path = database
+        if db_path is None:
+            db_path = ":memory:"
+        self.db = sqlite3.connect(db_path)  # warning: only current thread will be able to use it
+        self.db_path = db_path
         self.db.execute(self._SQL_CREATETABLE_MOLECULES)
         self.db.execute(self._SQL_CREATETABLE_RULES)
         self.db.execute(self._SQL_CREATETABLE_RESULTS)
@@ -81,7 +81,7 @@ class RuleBurner(object):
         n_mols = self.db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
         n_res = self.db.execute("SELECT count(*) FROM results").fetchone()['count(*)']
         logger.info(f"Connected to a database with {n_rules} rules, {n_mols} molecules, "
-                    f"and {n_res} results (at '{database}').")
+                    f"and {n_res} results (at '{db_path}').")
         # Sanitization
         self._with_hs = with_hs
         self._with_stereo = with_stereo
@@ -300,7 +300,7 @@ class RuleBurner(object):
             try:
                 yield rid, rule_data[rid], cid, mol_data[cid]
             except KeyError as err:
-                logger.warning(f"It seems that data for {err} is not reachable. Is it a valid identifier?")
+                raise ValueError(f"{err} is not a valid identifier in task (rid={rid}, cid={cid}).")
 
     def _gen_records(self, data, rdkit_func, blob_colname, other_colnames):
         """Helper generator of molecule or rule records for insertion in the database."""
@@ -409,6 +409,7 @@ class RuleBurner(object):
 
     def _insert_chemicals(self, data, rdkit_func):
         """Helper function to insert chemicals into the database."""
+        n_before = self.db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
         # First, convert data to a Dict-like structure with key as identifiers
         if not isinstance(data, collections.Mapping):
             offset = RuleBurner._get_highest_int(self.chemicals) + 1 if self.chemicals else 0
@@ -427,9 +428,12 @@ class RuleBurner(object):
                             self._gen_records(data, rdkit_func, 'rd_mol', other_colnames))
         self.db.commit()
         self._chemicals = None  # Reset the list of identifiers
+        n_after = self.db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
+        return n_after - n_before
 
     def _insert_rules(self, data, rdkit_func):
         """Helper function to insert rules into the database."""
+        n_before = self.db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
         # First, convert data to a Dict-like structure with key as identifiers
         if not isinstance(data, collections.Mapping):
             offset = RuleBurner._get_highest_int(self.rules) + 1 if self.rules else 0
@@ -448,6 +452,8 @@ class RuleBurner(object):
                             self._gen_records(data, rdkit_func, 'rd_rule', other_colnames))
         self.db.commit()
         self._rules = None  # Reset the list of identifiers
+        n_after = self.db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
+        return n_after - n_before
 
     def _insert_result(self, rid, cid, rd_mol_list_list, inchikeys, inchis, smiles):
         """Helper to insert results and newly found molecules."""
@@ -477,15 +483,15 @@ class RuleBurner(object):
 
     def insert_rsmarts(self, data):
         """Insert reaction rules defined as reaction SMARTS into the database."""
-        self._insert_rules(data, self._init_rdkit_rule)
+        return self._insert_rules(data, self._init_rdkit_rule)
 
     def insert_inchi(self, data):
         """Insert molecules defined as InChI into the database."""
-        self._insert_chemicals(data, self._init_rdkit_mol_from_inchi)
+        return self._insert_chemicals(data, self._init_rdkit_mol_from_inchi)
 
     def insert_smiles(self, data):
         """Insert molecules defined as InChI into the database."""
-        self._insert_chemicals(data, self._init_rdkit_mol_from_smiles)
+        return self._insert_chemicals(data, self._init_rdkit_mol_from_smiles)
 
     def create_indexes(self):
         """Create SQL indexes on the database."""
@@ -523,7 +529,7 @@ class RuleBurner(object):
             yield result
 
 
-def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs, with_stereo):
+def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, db_path, with_hs, with_stereo):
     def helper_metabolite(store, cid, smiles):
         if cid not in store:
             store[cid] = smiles
@@ -559,18 +565,18 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs
                 helper_metabolite(metabolites, pid, smiles_list[idx])
                 results.add((rid, sid, pid, 0))  # we know there is only one solution (pgroup is unique)
     # Create the database
-    o = RuleBurner(database=path_sqlite, with_hs=with_hs, with_stereo=with_stereo)
+    o = RuleBurner(db_path=db_path, with_hs=with_hs, with_stereo=with_stereo)
     o.insert_rsmarts(rules)
     o.insert_smiles(metabolites)
     o.db.executemany("INSERT INTO results VALUES (?,?,?,?);", list(results))
     o.create_indexes()
 
 
-def create_db_from_retrorules(path_retrosmarts_tsv, path_sqlite, with_hs=False, with_stereo=False, version="v1.0"):
+def create_db_from_retrorules(path_retrosmarts_tsv, db_path, with_hs=False, with_stereo=False, version="v1.0"):
     """Convert a RetroRules dataset to a rpreactor-ready sqlite3 database.
 
     All rules and all molecules will be extracted from the TSV file and imported into the database.
     For more information on RetroRules, see https://retrorules.org/.
     """
     if version.startswith("v1.0"):
-        _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, path_sqlite, with_hs, with_stereo)
+        _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, db_path, with_hs, with_stereo)
