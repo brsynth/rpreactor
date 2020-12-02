@@ -550,7 +550,15 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, db_path, with_hs, wi
             rid = row["# Rule_ID"]
             rsmarts = row["Rule_SMARTS"]
             diameter = int(row["Diameter"])
-            direction = int(row["Reaction_direction"])  # -1, 0, 1 ==> reversed, both, forward
+            direction = row["Rule_usage"]  # -1, 0, 1 ==> retro, both, forward
+            if direction == "both":
+                direction = 0
+            elif direction == "retro":
+                direction = -1
+            elif direction == "forward":
+                direction = 1
+            else:
+                raise ValueError(f"Found an unexpected direction for rule {rid}: {direction}")
             if rid not in rules:
                 # warning: keys must match database schema
                 rules[rid] = {'rd_rule': rsmarts, 'diameter': diameter, 'direction': direction}
