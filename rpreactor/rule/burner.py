@@ -56,7 +56,9 @@ class RuleBurner(object):
             sid TEXT NOT NULL,
             rid TEXT NOT NULL,
             pid TEXT,
+            pstoichio INTEGER,
             pgroup INTEGER,
+            PRIMARY KEY (sid, rid, pid, pgroup),
             FOREIGN KEY (sid) REFERENCES molecules (id),
             FOREIGN KEY (rid) REFERENCES rules (id),
             FOREIGN KEY (pid) REFERENCES molecules (id)
@@ -329,7 +331,7 @@ class RuleBurner(object):
     def _gen_precomputed_results(self, rule_mol):
         """Yields results found in the database."""
         query_results_str = """
-        SELECT sid, rid, pid, pgroup, smiles, inchi, inchikey, rd_mol
+        SELECT sid, rid, pid, pstoichio, pgroup, smiles, inchi, inchikey, rd_mol
         FROM results
         INNER JOIN molecules ON results.pid=molecules.id
         WHERE rid=? AND sid=?
@@ -339,6 +341,7 @@ class RuleBurner(object):
             result = None
             pgroup = None  # pgroup is a 0-based counter for each distinct solution
             for row in self.db.execute(query_results_str, [rule, mol]):
+                stoichio = row['pstoichio']
                 if pgroup is None:             # init a new result object
                     result = {
                         'rule_id': rule,
@@ -349,17 +352,17 @@ class RuleBurner(object):
                         'product_smiles': [],
                     }
                 if row['pgroup'] != pgroup:    # new group => a solution of one rule on one chemical
-                    result['product_list'].append([Chem.Mol(row['rd_mol'])])
-                    result['product_inchikeys'].append([row['inchikey']])
-                    result['product_inchis'].append([row['inchi']])
-                    result['product_smiles'].append([row['smiles']])
+                    result['product_list'].append([Chem.Mol(row['rd_mol'])] * stoichio)
+                    result['product_inchikeys'].append([row['inchikey']] * stoichio)
+                    result['product_inchis'].append([row['inchi']] * stoichio)
+                    result['product_smiles'].append([row['smiles']] * stoichio)
                 elif row['pgroup'] == pgroup:  # metabolites sharing the same "pgroup" are coproducts of the same solution
-                    result['product_list'][pgroup].append(Chem.Mol(row['rd_mol']))
-                    result['product_inchikeys'][pgroup].append(row['inchikey'])
-                    result['product_inchis'][pgroup].append(row['inchi'])
-                    result['product_smiles'][pgroup].append(row['smiles'])
+                    result['product_list'][pgroup].append(Chem.Mol(row['rd_mol']) * stoichio)
+                    result['product_inchikeys'][pgroup].append(row['inchikey'] * stoichio)
+                    result['product_inchis'][pgroup].append(row['inchi'] * stoichio)
+                    result['product_smiles'][pgroup].append(row['smiles'] * stoichio)
                 pgroup = row['pgroup']  # remember last solution index
-            if result:
+            if result is not None:
                 yield result
 
     def _gen_compute_results(self, rule_mol, commit, max_workers, timeout, chunk_size):
@@ -374,7 +377,7 @@ class RuleBurner(object):
             for chunk_idx, chunk in enumerate(_chunkify(rule_mol, chunk_size)):
                 if chunk_idx > 0:
                     logger.debug(f"Working on task chunk #{chunk_idx+1}...")
-                # Submit all the tasks for this chunk, and retrieve previous results
+                # Submit all the tasks for this chunk
                 all_running_tasks = []  # list of Future objects
                 for rid, rd_rule, cid, rd_mol in self._gen_couples(chunk):
                     task = (rid, cid, pool.schedule(RuleBurner._task_fire,
@@ -460,25 +463,36 @@ class RuleBurner(object):
         # First, commit all the chemicals if they are not known
         next_valid_id = RuleBurner._get_highest_int(self.chemicals) + 1
         for idx1, rd_mol_list in enumerate(rd_mol_list_list):
+            stoichio = {}      # <product chemical id>: <stoichiometry>
+            seen_inchi = {}    # <product inchi>: <product chemical id>
+            insert_tasks = []
             for idx2, rd_mol in enumerate(rd_mol_list):
-                # Is this chemical known?
+                # Is this product a known chemical in the database?
                 this_inchi = inchis[idx1][idx2]
-                ans = self.db.execute("select id from molecules where inchi=? limit 1;",
-                                      [this_inchi]).fetchone()
-                if ans:
+                if this_inchi in seen_inchi:  # product is duplicated: its stoichio is >1
+                    stoichio[seen_inchi[this_inchi]] += 1
+                    continue
+                ans = self.db.execute("select id from molecules where inchi=? limit 1;", [this_inchi]).fetchone()
+                if ans:  # product is already known in the database
                     this_id = ans['id']  # arbitrarily keep the first occurence
                     chemical_need_commit = False
-                else:
+                else:    # product is new
                     this_id = next_valid_id
                     chemical_need_commit = True
                     next_valid_id += 1
+                # Remember this product in case its stoichio is >1
+                seen_inchi[this_inchi] = this_id
+                stoichio[this_id] = 1
                 # Insert what needs to be inserted
                 if chemical_need_commit:
                     record = (this_id, rd_mol.ToBinary(), smiles[idx1][idx2], this_inchi,
                               inchikeys[idx1][idx2], 1)
                     self.db.execute("insert into molecules values (?,?,?,?,?,?);", record)
                     self._chemicals.append(str(this_id))  # manual update of the list of used identifiers (kinda dangerous)
-                self.db.execute("insert into results values (?,?,?,?);", (rid, cid, this_id, idx1))
+                insert_tasks.append((rid, cid, this_id, idx1))
+            # Add the stoichiometry before to commit the results
+            tmp = [(rid, cid, this_id, stoichio[this_id], idx1) for rid, cid, this_id, idx1 in insert_tasks]
+            self.db.executemany("insert into results values (?,?,?,?,?);", tmp)
         self.db.commit()
 
     def insert_rsmarts(self, data):
