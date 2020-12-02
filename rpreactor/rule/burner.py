@@ -496,6 +496,7 @@ class RuleBurner(object):
     def create_indexes(self):
         """Create SQL indexes on the database."""
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
+        # TODO: index on InChI?
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_results ON results(rid, sid);")
         self.db.commit()
@@ -514,8 +515,8 @@ class RuleBurner(object):
 
     def compute(self, rule_mol, commit=False, max_workers=1, timeout=60, chunk_size=1000):
         """Apply all rules on all chemicals and returns a generator over the results."""
-        # "None" means all rules against all mol
-        if rule_mol is None:
+        # Deal with magic arguments '*' that means "all"
+        if rule_mol == '*':
             rule_mol = [(rule, mol) for rule in self.rules for mol in self.chemicals]
         # First of all, yield precomputed results
         for result in self._gen_precomputed_results(rule_mol):
@@ -563,7 +564,7 @@ def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, db_path, with_hs, wi
             smiles_list = row["Product_SMILES"].split('.')
             for idx, pid in enumerate(row["Product_IDs"].split('.')):
                 helper_metabolite(metabolites, pid, smiles_list[idx])
-                results.add((rid, sid, pid, 0))  # we know there is only one solution (pgroup is unique)
+                results.add((rid, sid, pid, 0))  # TODO: bug, there can be several solutions for the same rule x mol couple
     # Create the database
     o = RuleBurner(db_path=db_path, with_hs=with_hs, with_stereo=with_stereo)
     o.insert_rsmarts(rules)
