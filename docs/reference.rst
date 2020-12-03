@@ -1,34 +1,47 @@
 Reference
 ********************************************************************************
 
-.. automodule:: rpreactor
+This page was automatically generated from the package docstrings.
+You will access the same information with Python's built-in `help` function.
 
 
 Rules
------------------------
+=====================
 
-.. automodule:: rpreactor.rule
+burner.py
+--------------
 
 .. automodule:: rpreactor.rule.burner
    :members:
    :undoc-members:
-   :show-inheritance:
+
+utils.py
+--------------
+
+.. automodule:: rpreactor.rule.utils
+   :members:
+
+exceptions.py
+--------------
 
 .. automodule:: rpreactor.rule.exceptions
    :members:
    :undoc-members:
-   :show-inheritance:
 
 
 Chemicals
------------------------
+=====================
 
-.. automodule:: rpreactor.chemical
+standardizer.py
+---------------
 
 .. automodule:: rpreactor.chemical.standardizer
    :members:
    :undoc-members:
    :show-inheritance:
+
+filters.py
+--------------
 
 .. automodule:: rpreactor.chemical.filters
    :members:

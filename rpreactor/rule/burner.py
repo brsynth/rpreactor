@@ -1,5 +1,5 @@
 """
-Core code for firing rules
+Main module to handle reaction rules and to apply them on metabolites.
 """
 
 import concurrent.futures
@@ -25,10 +25,15 @@ def _chunkify(it, size):
 
 
 class RuleBurner(object):
-    """Apply any number of rules on any number of compounds.
+    """This class manage the connection to a SQLite database that contains standardized molecules and reaction rules.
 
-    :param  with_hs:        bool, Enable explicit Hs when sanitizing chemicals
-    :param  with_stereo:    bool, Keep stereochemistry (if any) when sanitizing chemicals
+    :param  db_path:        Path to the SQLite database (will be created if it doesn't exist). If None is provided
+                            an in-memory database will be created. Default: None.
+    :param  with_hs:        Enable explicit hydrogens when sanitizing chemicals. Default: False.
+    :param  with_stereo:    Keep stereochemistry (if any) when sanitizing chemicals. Default: False.
+    :type db_path:          str
+    :type with_hs:          bool
+    :type with_stereo:      bool
     """
     # TODO: rename class to 'RuleManager' or something?
 
@@ -108,14 +113,14 @@ class RuleBurner(object):
 
     @property
     def chemicals(self):
-        """Returns a list of chemicals (molecules) identifier stored in the database."""
+        """Returns a list of chemicals (molecules) identifiers currently used in the database."""
         if self._chemicals is None:
             self._chemicals = [x['id'] for x in self.db.execute("SELECT id FROM molecules").fetchall()]
         return self._chemicals
 
     @property
     def rules(self):
-        """Returns a list of rules identifier stored in the database."""
+        """Returns a list of rules identifiers currently used in the database."""
         if self._rules is None:
             self._rules = [x['id'] for x in self.db.execute("SELECT id FROM rules").fetchall()]
         return self._rules
@@ -515,19 +520,41 @@ class RuleBurner(object):
         self.db.commit()
 
     def insert_rsmarts(self, data):
-        """Insert reaction rules defined as reaction SMARTS into the database."""
+        """Insert reaction rules defined as reaction SMARTS into the database.
+
+        :param data: A Dict-like stucture where keys are new identifiers and values SMARTS strings.
+        :return: The number of inserted records.
+        """
         return self._insert_rules(data, self._init_rdkit_rule)
 
     def insert_inchi(self, data):
-        """Insert molecules defined as InChI into the database."""
+        """Insert molecules defined as InChI into the database.
+
+        :param data: A Dict-like stucture where keys are new identifiers and values InChI strings.
+        :return: The number of inserted records.
+        """
         return self._insert_chemicals(data, self._init_rdkit_mol_from_inchi)
 
     def insert_smiles(self, data):
-        """Insert molecules defined as InChI into the database."""
+        """Insert molecules defined as SMILES into the database.
+
+        :param data: A Dict-like stucture where keys are new identifiers and values SMILES strings.
+        :return: The number of inserted records.
+        """
         return self._insert_chemicals(data, self._init_rdkit_mol_from_smiles)
 
     def create_indexes(self):
-        """Create SQL indexes on the database."""
+        """Create SQL indexes on the database.
+
+        * Table `molecules`: `id` and `inchi`.
+        * Table `rules`: `id` and `diameter, direction`.
+        * Table `results`: `(rid, sid)`.
+
+        Important: Keep in mind that to benefit from a multi-index, the WHERE clause in an SQL queries must use
+        the same column order as in the index.
+
+        Warning: this will slow down inserts but should fasten computations.
+        """
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules_inchi ON molecules(inchi);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
@@ -536,7 +563,11 @@ class RuleBurner(object):
         self.db.commit()
 
     def dump_to_sql(self, path):
-        """Dump the database as a SQL file."""
+        """Dump the database as a SQL file.
+
+        :param path: Path to the SQL file.
+        :type path: str
+        """
         with open(path, 'w') as f:
             for line in self.db.iterdump():
                 f.write(f'{line}\n')
@@ -548,7 +579,25 @@ class RuleBurner(object):
         self.db.commit()
 
     def compute(self, rule_mol, commit=False, max_workers=1, timeout=60, chunk_size=1000):
-        """Apply all rules on all chemicals and returns a generator over the results."""
+        """Returns a generator over products predicted by applying rules on molecules.
+
+        Important: rules and molecules must be inserted into the database beforehand and are referred to by their
+        identifier. We assume each identifier refer to distinct rules and molecules: several identifiers referring to
+        identical rules/molecules will be computed independently.
+
+        :param rule_mol: Tasks to compute as in: [(<rule_id>, <mol_id>), ...]. If the magic argument "*" is provided,
+            will compute all rules against all metabolites (mainly useful for debug purpose).
+        :type rule_mol: list of tuple
+        :param commit: If true, the results be commited to the `results` table for later retrieval. Default: False.
+        :type commit: bool
+        :param max_workers: Maximum number of cores to use simultaneously to compute the tasks. Default: 1.
+        :type max_workers: int
+        :param timeout: Maximum time allowed for a single rule to apply on a single molecule (in seconds). Default: 60.
+        :type timeout: int
+        :param chunk_size: The maximum chunk size of tasks to hold in-memory at once. Increasing this number will yield
+            better performacne but may saturate the memory. Default: 1000.
+        :type chunk_size: int
+        """
         # Reset the summary attributes
         self._precomputed_count = 0
         self._newlycomputed_count = 0
@@ -571,7 +620,10 @@ class RuleBurner(object):
             yield result
 
     def summary(self):
-        """Returns a summary of the database and last compute execution."""
+        """Returns a summary of the database state and last compute execution.
+
+        :return: Dict
+        """
         ans = {
             "database_rules_count": len(self.rules),
             "database_chemical_count": len(self.chemicals),
