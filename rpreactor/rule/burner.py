@@ -6,7 +6,6 @@ import concurrent.futures
 import logging
 import sqlite3
 import itertools
-import csv
 import collections
 
 import pebble
@@ -357,10 +356,10 @@ class RuleBurner(object):
                     result['product_inchis'].append([row['inchi']] * stoichio)
                     result['product_smiles'].append([row['smiles']] * stoichio)
                 elif row['pgroup'] == pgroup:  # metabolites sharing the same "pgroup" are coproducts of the same solution
-                    result['product_list'][pgroup].append(Chem.Mol(row['rd_mol']) * stoichio)
-                    result['product_inchikeys'][pgroup].append(row['inchikey'] * stoichio)
-                    result['product_inchis'][pgroup].append(row['inchi'] * stoichio)
-                    result['product_smiles'][pgroup].append(row['smiles'] * stoichio)
+                    result['product_list'][-1] + [Chem.Mol(row['rd_mol'])] * stoichio
+                    result['product_inchikeys'][-1] + [row['inchikey']] * stoichio
+                    result['product_inchis'][-1] + [row['inchi']] * stoichio
+                    result['product_smiles'][-1] + [row['smiles']] * stoichio
                 pgroup = row['pgroup']  # remember last solution index
             if result is not None:
                 yield result
@@ -542,64 +541,3 @@ class RuleBurner(object):
         # Only then, continue with non pre-computed results
         for result in self._gen_compute_results(rule_mol, commit, max_workers, timeout, chunk_size):
             yield result
-
-
-def _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, db_path, with_hs, with_stereo):
-    def helper_metabolite(store, cid, smiles):
-        if cid not in store:
-            store[cid] = smiles
-        elif store[cid] != smiles:
-            logger.warning(f"Metabolite {cid} is suspiciously associated to distinct SMILES. "
-                           f"Only the first one will be considered: {store[cid]} and {smiles}")
-    rules = {}
-    metabolites = {}  # both substrate and products
-    results = set()   # all "obvious" results that directly come from the reaction database (no promiscuity)
-    # Load all valuable data in-memory
-    # NB: is this file small enough that we do not need to chunk it?
-    with open(path_retrosmarts_tsv) as hdl:
-        for row in csv.DictReader(hdl, delimiter='\t'):
-            # each row is a reaction rule automatically generated from a known metabolic reaction
-            # each row contains 1 rule...
-            # NB: rule identifier may be duplicated over several rows but must match the same RSMARTS
-            rid = row["# Rule_ID"]
-            rsmarts = row["Rule_SMARTS"]
-            diameter = int(row["Diameter"])
-            direction = row["Rule_usage"]  # -1, 0, 1 ==> retro, both, forward
-            if direction == "both":
-                direction = 0
-            elif direction == "retro":
-                direction = -1
-            elif direction == "forward":
-                direction = 1
-            else:
-                raise ValueError(f"Found an unexpected direction for rule {rid}: {direction}")
-            if rid not in rules:
-                # warning: keys must match database schema
-                rules[rid] = {'rd_rule': rsmarts, 'diameter': diameter, 'direction': direction}
-            else:
-                assert rules[rid]['rd_rule'] == rsmarts, f"UNEXPECTED: rule {rid} from {path_retrosmarts_tsv} has " \
-                                                         f"mismatching RSMARTS: {rules[rid]} and {rsmarts}"
-            # ... and 1 substrate ...
-            sid = row["Substrate_ID"]
-            helper_metabolite(metabolites, sid, row["Substrate_SMILES"])
-            # ... and N coproducts
-            smiles_list = row["Product_SMILES"].split('.')
-            for idx, pid in enumerate(row["Product_IDs"].split('.')):
-                helper_metabolite(metabolites, pid, smiles_list[idx])
-                results.add((rid, sid, pid, 0))  # TODO: bug, there can be several solutions for the same rule x mol couple
-    # Create the database
-    o = RuleBurner(db_path=db_path, with_hs=with_hs, with_stereo=with_stereo)
-    o.insert_rsmarts(rules)
-    o.insert_smiles(metabolites)
-    o.db.executemany("INSERT INTO results VALUES (?,?,?,?);", list(results))
-    o.create_indexes()
-
-
-def create_db_from_retrorules(path_retrosmarts_tsv, db_path, with_hs=False, with_stereo=False, version="v1.0"):
-    """Convert a RetroRules dataset to a rpreactor-ready sqlite3 database.
-
-    All rules and all molecules will be extracted from the TSV file and imported into the database.
-    For more information on RetroRules, see https://retrorules.org/.
-    """
-    if version.startswith("v1.0"):
-        _create_db_from_retrorules_v1_0_5(path_retrosmarts_tsv, db_path, with_hs, with_stereo)
