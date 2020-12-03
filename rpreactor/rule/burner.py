@@ -88,6 +88,23 @@ class RuleBurner(object):
         self._with_stereo = with_stereo
         if self._with_stereo:
             raise NotImplementedError("Stereo is not implemented at the time being.")
+        # Summary attributes
+        self._precomputed_count = 0
+        self._newlycomputed_count = 0
+        self._timeout_list = []
+        self._errors_list = []
+
+    def __str__(self):
+        """String representatino of the summary."""
+        s = self.summary()
+        txt = f"Connected to a database with {s['database_rules_count']} rules, " \
+              f"{s['database_chemical_count']} compounds, and {s['database_results_count']} results " \
+              f"(at '{self.db_path}')." \
+              f"Last compute call yield {s['lastcompute_precomputed_count']+s['lastcompute_newlycomputed_count']} " \
+              f"results ({s['lastcompute_precomputed_count']} precomputed, {s['lastcompute_newlycomputed_count']} new); " \
+              f"{len(s['lastcompute_errors_list'])} errors were caught (details in the logs), " \
+              f"and {len(s['lastcompute_timeout_list'])} timeouts were hit."
+        return txt
 
     @property
     def chemicals(self):
@@ -402,10 +419,13 @@ class RuleBurner(object):
                     except concurrent.futures.TimeoutError:
                         logger.warning(f"Task {rid} on {cid} (#{i}) timed-out.")
                         # task['future'].cancel()  # NB: no need to cancel it, it's already canceled
+                        self._timeout_list.append((rid, cid))
                     except RuleFireError as error:
                         logger.error(f"Task {rid} on {cid} (#{i}) failed: {error}.")
+                        self._errors_list.append((rid, cid))
                     except pebble.ProcessExpired as error:
                         logger.critical(f"Task {rid} on {cid} (#{i}) crashed unexpectedly: {error}.")
+                        self._errors_list.append((rid, cid))
                 # Attempt to free the memory
                 del all_running_tasks
 
@@ -509,8 +529,9 @@ class RuleBurner(object):
     def create_indexes(self):
         """Create SQL indexes on the database."""
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
-        # TODO: index on InChI?
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules_inchi ON molecules(inchi);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules_diadir ON rules(diameter, direction);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_results ON results(rid, sid);")
         self.db.commit()
 
@@ -528,6 +549,11 @@ class RuleBurner(object):
 
     def compute(self, rule_mol, commit=False, max_workers=1, timeout=60, chunk_size=1000):
         """Apply all rules on all chemicals and returns a generator over the results."""
+        # Reset the summary attributes
+        self._precomputed_count = 0
+        self._newlycomputed_count = 0
+        self._timeout_list = []
+        self._errors_list = []
         # Deal with magic arguments '*' that means "all"
         if rule_mol == '*':
             rule_mol = [(rule, mol) for rule in self.rules for mol in self.chemicals]
@@ -537,7 +563,22 @@ class RuleBurner(object):
                 rule_mol.remove((result['rule_id'], result['substrate_id']))
             except ValueError:  # (rule_id, substrate_id) was not found... could it be a list?
                 rule_mol.remove([result['rule_id'], result['substrate_id']])
+            self._precomputed_count += 1
             yield result
         # Only then, continue with non pre-computed results
         for result in self._gen_compute_results(rule_mol, commit, max_workers, timeout, chunk_size):
+            self._newlycomputed_count += 1
             yield result
+
+    def summary(self):
+        """Returns a summary of the database and last compute execution."""
+        ans = {
+            "database_rules_count": len(self.rules),
+            "database_chemical_count": len(self.chemicals),
+            "database_results_count": self.db.execute("select count(*) from results").fetchone()[0],
+            "lastcompute_precomputed_count": self._precomputed_count,
+            "lastcompute_newlycomputed_count": self._newlycomputed_count,
+            "lastcompute_timeout_list": self._timeout_list,
+            "lastcompute_errors_list": self._errors_list,
+        }
+        return ans
