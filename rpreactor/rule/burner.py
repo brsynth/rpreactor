@@ -209,6 +209,7 @@ class RuleBurner(object):
         """Generate InChIKey, InChI and SMILES from results.
 
         :param      list_list_rdmol:        list of list of RDKit Mol
+        :returns    list_list_rdmol:        list of list of RDKit Mol successfully converted
         :returns    list_list_inchikeys:    list of list of InchiKeys
         :returns    list_list_inchis:       list of list of Inchis
         :returns    list_list_smiles:       list of list of SMILES
@@ -522,7 +523,7 @@ class RuleBurner(object):
     def insert_rsmarts(self, data):
         """Insert reaction rules defined as reaction SMARTS into the database.
 
-        :param data: A Dict-like stucture where keys are new identifiers and values SMARTS strings.
+        :param data: A Dict-like structure where keys are new identifiers and values SMARTS strings.
         :return: The number of inserted records.
         """
         return self._insert_rules(data, self._init_rdkit_rule)
@@ -530,7 +531,7 @@ class RuleBurner(object):
     def insert_inchi(self, data):
         """Insert molecules defined as InChI into the database.
 
-        :param data: A Dict-like stucture where keys are new identifiers and values InChI strings.
+        :param data: A Dict-like structure where keys are new identifiers and values InChI strings.
         :return: The number of inserted records.
         """
         return self._insert_chemicals(data, self._init_rdkit_mol_from_inchi)
@@ -538,7 +539,7 @@ class RuleBurner(object):
     def insert_smiles(self, data):
         """Insert molecules defined as SMILES into the database.
 
-        :param data: A Dict-like stucture where keys are new identifiers and values SMILES strings.
+        :param data: A Dict-like structure where keys are new identifiers and values SMILES strings.
         :return: The number of inserted records.
         """
         return self._insert_chemicals(data, self._init_rdkit_mol_from_smiles)
@@ -593,10 +594,11 @@ class RuleBurner(object):
         :param max_workers: Maximum number of cores to use simultaneously to compute the tasks. Default: 1.
         :type max_workers: int
         :param timeout: Maximum time allowed for a single rule to apply on a single molecule (in seconds). Default: 60.
-        :type timeout: int
+        :type timeout: float
         :param chunk_size: The maximum chunk size of tasks to hold in-memory at once. Increasing this number will yield
             better performacne but may saturate the memory. Default: 1000.
         :type chunk_size: int
+        :return result: Dictionary (yield) providing result from one rule application
         """
         # Reset the summary attributes
         self._precomputed_count = 0
