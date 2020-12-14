@@ -439,12 +439,12 @@ class RuleBurner(object):
         """Helper function to insert chemicals into the database."""
         n_before = self.db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
         # First, convert data to a Dict-like structure with key as identifiers
-        if not isinstance(data, collections.Mapping):
+        if not isinstance(data, collections.abc.Mapping):
             offset = RuleBurner._get_highest_int(self.chemicals) + 1 if self.chemicals else 0
             data = {k+offset: v for k, v in enumerate(data)}
         # Sniff the structure of data values (Dict-like or plain text)
         example = data[next(iter(data))]
-        if isinstance(example, collections.Mapping):
+        if isinstance(example, collections.abc.Mapping):
             other_colnames = [x for x in example.keys() if x != 'rd_mol']
         else:
             other_colnames = []
@@ -463,12 +463,12 @@ class RuleBurner(object):
         """Helper function to insert rules into the database."""
         n_before = self.db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
         # First, convert data to a Dict-like structure with key as identifiers
-        if not isinstance(data, collections.Mapping):
+        if not isinstance(data, collections.abc.Mapping):
             offset = RuleBurner._get_highest_int(self.rules) + 1 if self.rules else 0
             data = {k+offset: v for k, v in enumerate(data)}
         # Sniff the structure of data values (Dict-like or plain text)
         example = data[next(iter(data))]
-        if isinstance(example, collections.Mapping):
+        if isinstance(example, collections.abc.Mapping):
             other_colnames = [x for x in example.keys() if x != 'rd_rule']
         else:
             other_colnames = []
@@ -613,7 +613,7 @@ class RuleBurner(object):
             try:
                 rule_mol.remove((result['rule_id'], result['substrate_id']))
             except ValueError:  # (rule_id, substrate_id) was not found... could it be a list?
-                rule_mol.remove([result['rule_id'], result['substrate_id']])
+                rule_mol.remove((result['rule_id'], result['substrate_id']))
             self._precomputed_count += 1
             yield result
         # Only then, continue with non pre-computed results
