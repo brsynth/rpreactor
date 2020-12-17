@@ -588,7 +588,7 @@ class RuleBurner(object):
 
         :param rule_mol: Tasks to compute as in: [(<rule_id>, <mol_id>), ...]. If the magic argument "*" is provided,
             will compute all rules against all metabolites (mainly useful for debug purpose).
-        :type rule_mol: list of tuple
+        :type rule_mol: list of tuple, or '*'
         :param commit: If true, the results be commited to the `results` table for later retrieval. Default: False.
         :type commit: bool
         :param max_workers: Maximum number of cores to use simultaneously to compute the tasks. Default: 1.
