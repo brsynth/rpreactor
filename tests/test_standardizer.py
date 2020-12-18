@@ -4,6 +4,12 @@ from rdkit.Chem import MolFromSmiles, MolToSmiles
 from rdkit.Chem import MolFromInchi, MolToInchi
 
 
+def test__call():
+    o = Standardizer()
+    mol = MolFromSmiles('CCO')
+    o(mol)
+
+
 def test_init():
     def sequence_dummy(mol):
         return mol

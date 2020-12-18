@@ -5,11 +5,14 @@ Test FireBurner class
 import pytest
 import logging
 from rdkit import Chem
+from rdkit.Chem import AllChem
 from rpreactor.rule.burner import RuleBurner
+from rpreactor.rule.exceptions import RuleFireError, RuleConversionError, ChemConversionError
 
 
 # Data for tests
 substrate_inchi = 'InChI=1S/C3H6O3/c1-2(4)3(5)6/h2,4H,1H3,(H,5,6)'
+substrate_smiles = 'CC(O)C(=O)O'
 reaction_smarts = '([#8&v2:1](-[#6&v4:2](-[#6&v4:3](-[#8&v2:4]-[#1&v1:5])=[#8&v2:6])(-[#6&v4:7](-[#1&v1:8])(-[#1&v1:9])-[#1&v1:10])-[#1&v1:11])-[#1&v1:12])>>([#15&v5](=[#8&v2])(-[#8&v2]-[#1&v1])(-[#8&v2]-[#1&v1])-[#8&v2:1]-[#6&v4:2](-[#6&v4:3](-[#8&v2:4]-[#1&v1:5])=[#8&v2:6])(-[#6&v4:7](-[#1&v1:8])(-[#1&v1:9])-[#1&v1:10])-[#1&v1:11].[#7&v3](=[#6&v4]1:[#7&v3]:[#6&v4](-[#8&v2]-[#1&v1]):[#6&v4]2:[#7&v3]:[#6&v4](-[#1&v1]):[#7&v3](-[#6&v4]3(-[#1&v1])-[#8&v2]-[#6&v4](-[#6&v4](-[#8&v2]-[#15&v5](=[#8&v2])(-[#8&v2]-[#1&v1])-[#8&v2]-[#15&v5](-[#8&v2]-[#1&v1:12])(=[#8&v2])-[#8&v2]-[#1&v1])(-[#1&v1])-[#1&v1])(-[#1&v1])-[#6&v4](-[#8&v2]-[#1&v1])(-[#1&v1])-[#6&v4]-3(-[#8&v2]-[#1&v1])-[#1&v1]):[#6&v4]:2:[#7&v3]:1-[#1&v1])-[#1&v1])'
 tuple_product_inchikeys = ('CSZRNWHGZPKNKY-UHFFFAOYSA-N', 'QGWNDRXFNXRZMB-UHFFFAOYSA-N')
 tuple_product_smiles = ('[H][O][C](=[O])[C]([H])([O][P](=[O])([O][H])[O][H])[C]([H])([H])[H]', '[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]')
@@ -33,6 +36,31 @@ def test_init_2():
     # Stereo support not implemented
     with pytest.raises(NotImplementedError):
         RuleBurner(with_stereo=True)
+
+
+def test_chemicals():
+    # Chemicals to be considered
+    rb = RuleBurner()
+    rb.insert_inchi({'cid1': substrate_inchi, 'cid2': substrate_inchi})
+    assert sorted(rb.chemicals) == ['cid1', 'cid2']
+
+
+def test_rules():
+    # Rules to be considered
+    rb = RuleBurner()
+    rb.insert_rsmarts({'rid1': reaction_smarts, 'rid2': reaction_smarts})
+    assert sorted(rb.rules) == ['rid1', 'rid2']
+
+
+def test_task_fire(mocker):
+    # raises RuleFireError
+    with pytest.raises(RuleFireError):
+        RuleBurner._task_fire('dummy', 'dummy', with_hs=False, with_stereo=False)
+    # goes well
+    mol = Chem.MolFromInchi(substrate_inchi)
+    rule = AllChem.ReactionFromSmarts(reaction_smarts)
+    mocker.patch.object(RuleBurner, '_handle_results')
+    RuleBurner._task_fire(rule, mol, with_hs=False, with_stereo=False)
 
 
 def test_standardize_chemical_1():
@@ -120,6 +148,60 @@ def test_handle_result():
     rdmol = Chem.MolFromSmiles(smiles[0][1])
     rdmol = Chem.AddHs(rdmol)
     assert Chem.MolToSmiles(rdmol, allHsExplicit=True) == '[H][N]=[c]1[n][c]([O][H])[c]2[n][c]([H])[n]([C]3([H])[O][C]([H])([C]([H])([H])[O][P](=[O])([O][H])[O][P](=[O])([O][H])[O][H])[C]([H])([O][H])[C]3([H])[O][H])[c]2[n]1[H]'
+
+
+def test_get_highest_int():
+    # iterable expected, but not a str
+    with pytest.raises(TypeError):
+        RuleBurner._get_highest_int('123')
+    assert RuleBurner._get_highest_int((1, 2, 3)) == 3
+    assert RuleBurner._get_highest_int(('1', 2, '3')) == 3
+    assert RuleBurner._get_highest_int((1, '2', 'a')) == 2
+
+
+def test_init_rdkit_rule():
+    rb = RuleBurner()
+    with pytest.raises(RuleConversionError):
+        rb._init_rdkit_rule('DUMB')
+
+    rb._init_rdkit_rule('[C:1]>>[C:1]-[C]')
+    rb._init_rdkit_rule(reaction_smarts)
+
+
+@pytest.mark.parametrize('valid_inchis', ['InChI=1S/H2O/h1H2', substrate_inchi])
+def test_init_rdkit_mol_from_inchi(valid_inchis):
+    rb = RuleBurner()
+    with pytest.raises(ChemConversionError):
+        rb._init_rdkit_mol_from_inchi('DUMB')
+    rb._init_rdkit_mol_from_inchi(valid_inchis)
+
+
+@pytest.mark.parametrize('valid_smiles', ['[H]O[H]', substrate_smiles])
+def test_init_rdkit_mol_from_smiles(valid_smiles):
+    rb = RuleBurner()
+    with pytest.raises(ChemConversionError):
+        rb._init_rdkit_mol_from_smiles('DUMB')
+    rb._init_rdkit_mol_from_smiles(valid_smiles)
+
+
+@pytest.mark.parametrize('valid_ids', [None, 'DUMB', [], ['TIMOTHY', 'DUMBO']])
+def test_gen_rules(valid_ids):
+    rb = RuleBurner()
+    rb.insert_rsmarts(reaction_smarts)
+    with pytest.raises(TypeError):
+        rb._gen_rules()  # value is mandatory
+    list(rb._gen_rules(valid_ids))
+
+
+@pytest.mark.parametrize('valid_inputs', [{'water': 'InChI=1S/H2O/h1H2', 'lactate': substrate_inchi}])
+def test_gen_chemicals(valid_inputs):
+    rb = RuleBurner()
+    with pytest.raises(TypeError):
+        rb._gen_chemicals()  # value is mandatory
+    rb.insert_inchi(valid_inputs)
+    list(rb._gen_chemicals(None))
+    ans = list(rb._gen_chemicals(list(valid_inputs.keys())))
+    assert len(ans) == len(valid_inputs)
 
 
 @pytest.mark.parametrize(
