@@ -7,4 +7,5 @@ dependencies:
   - rdkit
   - pebble 4.5*
   - pytest
+  - pytest-mock
   - sphinx
