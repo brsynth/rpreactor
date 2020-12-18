@@ -252,6 +252,8 @@ class RuleBurner(object):
 
         Importantly, any value that can be cast to an integer will be considered. Default to 0.
         """
+        if isinstance(untrusted_list, str):  # Prevent miss use of subscriptable
+            raise TypeError(f'Type str is not a valid subscriptable type')
         highest = 0
         for item in untrusted_list:
             try:
