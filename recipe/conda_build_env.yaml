@@ -7,4 +7,3 @@ dependencies:
   - conda-build
   - anaconda-client
   - pytest
-  - pytest-mock

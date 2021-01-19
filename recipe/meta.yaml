@@ -25,6 +25,7 @@ test:
     - tests
   requires:
     - pytest
+    - pytest-mock
   imports:
     - rpreactor
   commands:
