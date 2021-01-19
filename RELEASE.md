@@ -1,14 +1,18 @@
 # Release history
 
-## next release
-- refactor!: JSON export in the CLI + compute as a generator
+## 0.7.0
 - docs: sphinx documentation is available
-- ci: package publication is automated by github workflows
 - fix: processes don't hang anymore!
 - refactor!: replace multiprocessing by pebble
-- perf: optimization of memory usage
-- refactor!: hide private methods
-- feat: merge rpchemtools into rpreactor
+- refactor!: JSON export in the CLI + compute as a generator
+- refactor!: compute couples of rule x chemicals
+- feat!: sqlite3 as a cache database + return rdkit Mol object
+- feat!: create sqlite3 database from retrorules
+- feat: small optimization of memory usage
+- feat: support for stoichiometry
+- feat: compute on subsets of rules or chemicals  
+- feat: fusion project rpchemtools
+- ci: package publication is automated by github workflows
 
 ## 0.6.2
 - docs: install instructions update
