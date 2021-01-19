@@ -23,16 +23,6 @@ class RuleConversionError(Exception):
         return "RULE-CONVERSION-ERROR: {}".format(self._msg)
 
 
-class RuleMatchError(Exception):
-    """Raised when something went wrong when matching a rule."""
-
-    def __init__(self, msg):
-        self._msg = msg
-
-    def __str__(self):
-        return "RULE-MATCH-ERROR: {}".format(self._msg)
-
-
 class RuleFireError(Exception):
     """Raised when something went wrong when firing a rule."""
 
