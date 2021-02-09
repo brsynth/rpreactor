@@ -611,13 +611,17 @@ class RuleBurner(object):
         if rule_mol == '*':
             rule_mol = [(rule, mol) for rule in self.rules for mol in self.chemicals]
         # First of all, yield precomputed results
+        already_computed_tasks = []
         for result in self._gen_precomputed_results(rule_mol):
-            try:
-                rule_mol.remove((result['rule_id'], result['substrate_id']))
-            except ValueError:  # (rule_id, substrate_id) was not found... could it be a list?
-                rule_mol.remove((result['rule_id'], result['substrate_id']))
+            already_computed_tasks.append((result['rule_id'], result['substrate_id']))
             self._precomputed_count += 1
             yield result
+        # Remove those already-yield results from the query
+        for task in already_computed_tasks:
+            try:
+                rule_mol.remove(task)
+            except ValueError:  # (rule_id, substrate_id) was not found... could it be a list?
+                rule_mol.remove(list(task))
         # Only then, continue with non pre-computed results
         for result in self._gen_compute_results(rule_mol, commit, max_workers, timeout, chunk_size):
             self._newlycomputed_count += 1
