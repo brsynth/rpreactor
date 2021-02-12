@@ -1,5 +1,9 @@
 # Release history
 
+## next release
+- fix: sqlite3 IntegrityError with new results and commit
+- fix: remove *all* rule_mol already yield in compute()
+
 ## 0.7.0
 - docs: sphinx documentation is available
 - fix: processes don't hang anymore!
