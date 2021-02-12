@@ -104,7 +104,7 @@ class RuleBurner(object):
         s = self.summary()
         txt = f"Connected to a database with {s['database_rules_count']} rules, " \
               f"{s['database_chemical_count']} compounds, and {s['database_results_count']} results " \
-              f"(at '{self.db_path}')." \
+              f"(at '{self.db_path}'). " \
               f"Last compute call yield {s['lastcompute_precomputed_count']+s['lastcompute_newlycomputed_count']} " \
               f"results ({s['lastcompute_precomputed_count']} precomputed, {s['lastcompute_newlycomputed_count']} new); " \
               f"{len(s['lastcompute_errors_list'])} errors were caught (details in the logs), " \
@@ -489,13 +489,13 @@ class RuleBurner(object):
         """Helper to insert results and newly found molecules."""
         # First, commit all the chemicals if they are not known
         next_valid_id = RuleBurner._get_highest_int(self.chemicals) + 1
-        for idx1, rd_mol_list in enumerate(rd_mol_list_list):
+        for idx_solution, rd_mol_list in enumerate(rd_mol_list_list):
             stoichio = {}      # <product chemical id>: <stoichiometry>
             seen_inchi = {}    # <product inchi>: <product chemical id>
-            insert_tasks = []
-            for idx2, rd_mol in enumerate(rd_mol_list):
+            insert_results = set()
+            for idx_coproduct, rd_mol in enumerate(rd_mol_list):
                 # Is this product a known chemical in the database?
-                this_inchi = inchis[idx1][idx2]
+                this_inchi = inchis[idx_solution][idx_coproduct]
                 if this_inchi in seen_inchi:  # product is duplicated: its stoichio is >1
                     stoichio[seen_inchi[this_inchi]] += 1
                     continue
@@ -512,13 +512,13 @@ class RuleBurner(object):
                 stoichio[this_id] = 1
                 # Insert what needs to be inserted
                 if chemical_need_commit:
-                    record = (this_id, rd_mol.ToBinary(), smiles[idx1][idx2], this_inchi,
-                              inchikeys[idx1][idx2], 1)
+                    record = (this_id, rd_mol.ToBinary(), smiles[idx_solution][idx_coproduct], this_inchi,
+                              inchikeys[idx_solution][idx_coproduct], 1)
                     self.db.execute("insert into molecules values (?,?,?,?,?,?);", record)
                     self._chemicals.append(str(this_id))  # manual update of the list of used identifiers (kinda dangerous)
-                insert_tasks.append((rid, cid, this_id, idx1))
+                insert_results.add((cid, rid, this_id, idx_solution))
             # Add the stoichiometry before to commit the results
-            tmp = [(rid, cid, this_id, stoichio[this_id], idx1) for rid, cid, this_id, idx1 in insert_tasks]
+            tmp = [(sid, rid, pid, stoichio[pid], pgroup) for sid, rid, pid, pgroup in insert_results]
             self.db.executemany("insert into results values (?,?,?,?,?);", tmp)
         self.db.commit()
 
@@ -611,13 +611,17 @@ class RuleBurner(object):
         if rule_mol == '*':
             rule_mol = [(rule, mol) for rule in self.rules for mol in self.chemicals]
         # First of all, yield precomputed results
+        already_computed_tasks = []
         for result in self._gen_precomputed_results(rule_mol):
-            try:
-                rule_mol.remove((result['rule_id'], result['substrate_id']))
-            except ValueError:  # (rule_id, substrate_id) was not found... could it be a list?
-                rule_mol.remove((result['rule_id'], result['substrate_id']))
+            already_computed_tasks.append((result['rule_id'], result['substrate_id']))
             self._precomputed_count += 1
             yield result
+        # Remove those already-yield results from the query
+        for task in already_computed_tasks:
+            try:
+                rule_mol.remove(task)
+            except ValueError:  # (rule_id, substrate_id) was not found... could it be a list?
+                rule_mol.remove(list(task))
         # Only then, continue with non pre-computed results
         for result in self._gen_compute_results(rule_mol, commit, max_workers, timeout, chunk_size):
             self._newlycomputed_count += 1
