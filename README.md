@@ -69,8 +69,8 @@ conda activate <dev_env>
 conda develop -n <dev_env> .
 ```
 
-You may be prompted to install *conda-build* in your base environment (`conda install conda-build`).
-The default conda environment name will be `dev_rpreacor` if not specified by `-n <dev_env>`.
+Warning: if you do not specify an environment name with `-n <dev_env>`, 
+then 'dev_rpreactor' will be used.
 
 Test your installation with:
 
@@ -119,16 +119,3 @@ conda build -c conda-forge --output-folder ${CONDA_BLD_PATH} recipe
 
 conda convert --platform osx-64 --platform linux-64 --platform win-64 --output-dir ${CONDA_BLD_PATH} ${CONDA_BLD_PATH}/*/rpreactor-*
 ```
-
-### Develop with Docker
-
-*rpreactor* only works on Linux systems. You may use Docker and [miniconda3 image](https://hub.docker.com/r/continuumio/miniconda3) 
-to develop on other operating systems:
-
-```bash
-cd <repository>
-docker pull continuumio/miniconda3
-docker run -d --name dev_rpreactor --mount type=bind,source="$(pwd)",target=/workdir  -it continuumio/miniconda3 bash
-```
-
-And then follow the "development installation" steps.

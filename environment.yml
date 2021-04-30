@@ -9,3 +9,4 @@ dependencies:
   - pytest
   - pytest-mock
   - sphinx
+  - conda-build
