@@ -100,7 +100,7 @@ class RuleBurner(object):
         self._errors_list = []
 
     def __str__(self):
-        """String representatino of the summary."""
+        """String representation of the summary."""
         s = self.summary()
         txt = f"Connected to a database with {s['database_rules_count']} rules, " \
               f"{s['database_chemical_count']} compounds, and {s['database_results_count']} results " \
