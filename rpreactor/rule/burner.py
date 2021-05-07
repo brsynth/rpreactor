@@ -195,15 +195,10 @@ class RuleBurner(object):
                 if depic not in uniq_depics:
                     uniq_depics.add(depic)
                     list_list_std.append(list_std)
-            except ChemConversionError as e:
-                logger.warning("{}".format(e))
-                list_idx_tuple_failed.append(idx_tuple)
-                raise e
             except Exception as e:
-                logger.warning("Cannot handle a tuple of result, skipped")
-                logger.warning("{}".format(e))
+                logger.warning(f"Some rule product(s) could not be standardized and will be ignored. "
+                               f"Caught a {type(e).__name__} error: {e}")
                 list_idx_tuple_failed.append(idx_tuple)
-
         return list_list_std, list_idx_tuple_failed
 
     @staticmethod
@@ -240,12 +235,9 @@ class RuleBurner(object):
                 list_list_inchikeys.append(list_inchikeys)
                 list_list_inchis.append(list_inchis)
                 list_list_smiles.append(list_smiles)
-            except ChemConversionError as e:
-                logger.warning("{}".format(e))
-                raise e
             except Exception as e:
-                logger.warning("Cannot handle a tuple of result, skipped")
-                logger.warning("{}".format(e))
+                logger.warning(f"Some rule product(s) could not be represented as InChI, InChIKey or SMILES "
+                               f"and will be ignored. Caught a {type(e).__name__} error: {e}")
         return list_list_rdmol, list_list_inchikeys, list_list_inchis, list_list_smiles  # Quick but dirty
 
     @staticmethod
@@ -281,7 +273,8 @@ class RuleBurner(object):
             rd_mol = Chem.MolFromInchi(inchi, sanitize=False)  # important: Sanitize = False
             rd_mol = RuleBurner._standardize_chemical(rd_mol, self._with_hs, self._with_stereo, heavy=True)
         except Exception as e:
-            raise ChemConversionError(e) from e
+            msg = f"'{inchi}' is not a valid InChI."
+            raise ChemConversionError(msg) from e
         return rd_mol
 
     def _init_rdkit_mol_from_smiles(self, smiles):
@@ -290,7 +283,8 @@ class RuleBurner(object):
             rd_mol = Chem.MolFromSmiles(smiles, sanitize=False)  # important: Sanitize = False
             rd_mol = RuleBurner._standardize_chemical(rd_mol, self._with_hs, self._with_stereo, heavy=True)
         except Exception as e:
-            raise ChemConversionError(e) from e
+            msg = f"'{smiles}' is not a valid SMILES."
+            raise ChemConversionError(msg) from e
         return rd_mol
 
     def _gen_rules(self, ids):
