@@ -203,11 +203,11 @@ def test_gen_chemicals(valid_inputs):
     ans = list(rb._gen_chemicals(list(valid_inputs.keys())))
     assert len(ans) == len(valid_inputs)
 
-def test_get_rules():
+def test_list_rules():
     rb = RuleBurner()
     with pytest.raises(ValueError):
-        rb.get_rules(diameter=8, usage=["forward"])
-    rules = rb.get_rules(diameter=8, usage=["FORWARD", "BOTH"])
+        rb.list_rules(diameter=8, usage=["forward"])
+    rules = rb.list_rules(diameter=8, usage=["FORWARD", "BOTH"])
     assert rules == []
 
 @pytest.mark.parametrize(

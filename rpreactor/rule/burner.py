@@ -556,8 +556,9 @@ class RuleBurner(object):
         """
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules_inchi ON molecules(inchi);")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules_inchikey ON molecules(inchikey);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
-        self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules_diadir ON rules(diameter, usage);")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules_diausa ON rules(diameter, usage);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_results ON results(rid, sid);")
         self.db.commit()
 
@@ -577,8 +578,35 @@ class RuleBurner(object):
         self.db.execute("DELETE FROM molecules WHERE is_computed=1;")
         self.db.commit()
 
-    def get_rules(self, diameter, usage):
-        """Get a subset of available rules by diameter and usage.
+    def get_chemical(self, mid):
+        """Get a copy of chemical <mid> as a RDKit molecule object."""
+        try:
+            ans = Chem.Mol(self.db.execute("select rd_mol from molecules where id=?;", [mid]).fetchone()[0])
+        except TypeError as err:
+            raise ValueError(f"{mid} is not in the database.") from err
+        return ans
+
+    def get_rule(self, rid):
+        """Get a copy of rule <rid> as a RDKit ChemReaction object."""
+        try:
+            tmp = self.db.execute("select rd_rule from rules where id=?;", [rid]).fetchone()
+            ans = Chem.rdChemReactions.ChemicalReaction(tmp[0])
+        except TypeError as err:
+            raise ValueError(f"{rid} is not in the database.") from err
+        return ans
+
+    def list_chemicals_with_inchi(self, inchi):
+        """List chemicals ids having this InChI."""
+        mids = [x[0] for x in self.db.execute("select id from molecules where inchi=?;", [inchi])]
+        return mids
+
+    def list_chemicals_with_inchikey(self, inchikey):
+        """List chemicals ids having this InChIKey."""
+        mids = [x[0] for x in self.db.execute("select id from molecules where inchikey=?;", [inchikey])]
+        return mids
+
+    def list_rules(self, diameter, usage):
+        """List rule ids at this diameter and usage.
 
         :param diameter: Rule diameter(s) to select.
         :type diameter: int or list of int
