@@ -68,11 +68,25 @@ class RuleBurner(object):
             FOREIGN KEY (pid) REFERENCES molecules (id)
         );
     """
+    _SQL_CREATETABLE_CONFIG = """
+    CREATE TABLE IF NOT EXISTS _config (
+        key TEXT NOT NULL,
+        value TEXT
+    );
+    """
 
     _CODE_RULEUSAGE = {'FORWARD': 1, 'RETRO': -1, 'BOTH': 0}
 
-    def __init__(self, db_path=None, with_hs=False, with_stereo=False):
-        """Setting up everything needed for behavior decisions and firing rules."""
+    _DEFAULT_MODE = ''
+    _DEFAULT_HS = True
+    _DEFAULT_STEREO = False
+
+    def __init__(self, db_path=None, mode=None, with_hs=None, with_stereo=None):
+        """Setting up everything needed for behavior decisions and firing rules.
+
+        The database will be created if it does not already exists. Parameters aside 'db_path' are only required
+        if the database needs to be created.
+        """
         # Set-up the database
         if db_path is None:
             db_path = ":memory:"
@@ -81,21 +95,29 @@ class RuleBurner(object):
         self.db.execute(self._SQL_CREATETABLE_MOLECULES)
         self.db.execute(self._SQL_CREATETABLE_RULES)
         self.db.execute(self._SQL_CREATETABLE_RESULTS)
+        self.db.execute(self._SQL_CREATETABLE_CONFIG)
         self.db.row_factory = sqlite3.Row
         self.db.commit()
-        self._chemicals = None
-        self._rules = None
-        n_rules = self.db.execute("SELECT count(*) FROM rules").fetchone()['count(*)']
-        n_mols = self.db.execute("SELECT count(*) FROM molecules").fetchone()['count(*)']
-        n_res = self.db.execute("SELECT count(*) FROM results").fetchone()['count(*)']
-        logger.info(f"Connected to a database with {n_rules} rules, {n_mols} molecules, "
-                    f"and {n_res} results (at '{db_path}').")
-        # Sanitization
-        self._with_hs = with_hs
-        self._with_stereo = with_stereo
+        # Check the database configuration
+        db_config = self._read_database_config()
+        input_state = {'mode': mode, 'with_hs': with_hs, 'with_stereo': with_stereo}
+        if db_config:  # database already configured: we must check that everything is coherent with user input
+            for k, v in input_state.items():
+                if v is not None and db_config[k] != v:
+                    raise ValueError(f"Impossible to initialize the database with parameter '{k}={v}': "
+                                     f"database was already configured with '{k}={db_config[k]}'!")
+        else:         # this is a new database: the configuration needs to be written
+            self._set_database_config(mode, with_hs, with_stereo)
+            db_config = self._read_database_config()
+        # Synchronize object and database configuration
+        self_mode = db_config['mode']
+        self._with_hs = True if db_config['with_hs'] == '1' else False
+        self._with_stereo = True if db_config['with_stereo'] == '1' else False
         if self._with_stereo:
             raise NotImplementedError("Stereo is not implemented at the time being.")
-        # Summary attributes
+        # Set up private attributes
+        self._chemicals = None
+        self._rules = None
         self._precomputed_count = 0
         self._newlycomputed_count = 0
         self._timeout_list = []
@@ -126,6 +148,27 @@ class RuleBurner(object):
         if self._rules is None:
             self._rules = [x['id'] for x in self.db.execute("SELECT id FROM rules").fetchall()]
         return self._rules
+
+    def _read_database_config(self):
+        """Read and return database configuration table."""
+        state = {row[0]: row[1] for row in self.db.execute("SELECT key, value FROM _config").fetchall()}
+        return state
+
+    def _set_database_config(self, mode, with_hs, with_stereo):
+        if mode is None:
+            mode = self._DEFAULT_MODE
+            logger.warning(f"Parameter 'mode' was not provided: defaulting to \"mode='{mode}'\". "
+                           "This may change in the future.")
+        if with_hs is None:
+            with_hs = self._DEFAULT_HS
+            logger.warning(f"Parameter 'with_hs' was not provided: defaulting to 'with_hs={with_hs}'. "
+                           "This may change in the future.")
+        if with_stereo is None:
+            with_stereo = self._DEFAULT_STEREO
+            logger.warning(f"Parameter 'with_stereo' was not provided: defaulting to 'with_stereo={with_stereo}'. "
+                           "This may change in the future.")
+        self.db.executemany("INSERT INTO _config VALUES (?,?)", [('mode', mode), ('with_hs', with_hs), ('with_stereo', with_stereo)])
+        self.db.commit()
 
     @staticmethod
     def _task_fire(rd_rule, rd_mol, with_hs, with_stereo):
