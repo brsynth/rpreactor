@@ -52,7 +52,7 @@ class RuleBurner(object):
             id TEXT NOT NULL PRIMARY KEY,
             rd_rule BLOB NOT NULL,
             diameter INTEGER DEFAULT NULL,
-            direction INTEGER DEFAULT 0 CHECK (direction in (-1, 0, 1))
+            usage INTEGER DEFAULT 0 CHECK (usage in (-1, 0, 1))
         );
     """
     _SQL_CREATETABLE_RESULTS = """
@@ -68,6 +68,8 @@ class RuleBurner(object):
             FOREIGN KEY (pid) REFERENCES molecules (id)
         );
     """
+
+    _CODE_RULEUSAGE = {'FORWARD': 1, 'RETRO': -1, 'BOTH': 0}
 
     def __init__(self, db_path=None, with_hs=False, with_stereo=False):
         """Setting up everything needed for behavior decisions and firing rules."""
@@ -550,7 +552,7 @@ class RuleBurner(object):
         """Create SQL indexes on the database.
 
         * Table `molecules`: `id` and `inchi`.
-        * Table `rules`: `id` and `diameter, direction`.
+        * Table `rules`: `id` and `diameter, usage`.
         * Table `results`: `(rid, sid)`.
 
         Important: Keep in mind that to benefit from a multi-index, the WHERE clause in an SQL queries must use
@@ -561,7 +563,7 @@ class RuleBurner(object):
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules_inchi ON molecules(inchi);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
-        self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules_diadir ON rules(diameter, direction);")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules_diadir ON rules(diameter, usage);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_results ON results(rid, sid);")
         self.db.commit()
 
@@ -580,6 +582,29 @@ class RuleBurner(object):
         self.db.execute("DELETE FROM results;")
         self.db.execute("DELETE FROM molecules WHERE is_computed=1;")
         self.db.commit()
+
+    def get_rules(self, diameter, usage):
+        """Get a subset of available rules by diameter and usage.
+
+        :param diameter: Rule diameter(s) to select.
+        :type diameter: int or list of int
+        :param usage: A list of rule usage to select: 'FORWARD', 'RETRO', or 'BOTH'.
+        :type diameter: list of str
+        """
+        # Checks and casts
+        if any(x not in self._CODE_RULEUSAGE for x in usage):
+            raise ValueError("Elements of 'usage' should be: 'FORWARD', 'RETRO', or 'BOTH'.")
+        if isinstance(diameter, int):
+            diameter = [diameter]
+        # Query
+        usage_codes = [self._CODE_RULEUSAGE[x] for x in usage]
+        query = f"""
+        select id
+        from rules
+        where diameter in ({','.join(['?']*len(diameter))}) and usage in ({','.join(['?']*len(usage_codes))})
+        """
+        rule_list = [x[0] for x in self.db.execute(query, [*diameter, *usage_codes]).fetchall()]
+        return rule_list
 
     def compute(self, rule_mol, commit=False, max_workers=1, timeout=60, chunk_size=1000):
         """Returns a generator over products predicted by applying rules on molecules.
