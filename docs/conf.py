@@ -18,8 +18,8 @@
 # -- Project information -----------------------------------------------------
 
 project = 'rpreactor'
-copyright = '2020, Thomas Duigou'
-author = 'Thomas Duigou'
+copyright = '2021, Thomas Duigou & Baudoin Delépine'
+author = 'Thomas Duigou & Baudoin Delépine'
 
 
 # -- General configuration ---------------------------------------------------
