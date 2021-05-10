@@ -1,6 +1,8 @@
 # Release history
 
-## next release
+## 0.7.1
+- docs: use nbsphinx to showcase usage
+- feat: silence RDKit warnings
 - fix: sqlite3 IntegrityError with new results and commit
 - fix: remove *all* rule_mol already yield in compute()
 
