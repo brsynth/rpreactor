@@ -68,6 +68,15 @@ class RuleBurner(object):
             FOREIGN KEY (pid) REFERENCES molecules (id)
         );
     """
+    _SQL_CREATETABLE_ATTEMPTS = """
+        CREATE TABLE IF NOT EXISTS batch_attempts (
+            sid TEXT NOT NULL,
+            diameter INTEGER,
+            usage INTEGER NOT NULL,
+            PRIMARY KEY (sid, diameter, usage),
+            FOREIGN KEY (sid) REFERENCES molecules (id)
+        );
+    """
     _SQL_CREATETABLE_CONFIG = """
     CREATE TABLE IF NOT EXISTS _config (
         key TEXT NOT NULL,
@@ -96,6 +105,7 @@ class RuleBurner(object):
         self.db.execute(self._SQL_CREATETABLE_RULES)
         self.db.execute(self._SQL_CREATETABLE_RESULTS)
         self.db.execute(self._SQL_CREATETABLE_CONFIG)
+        self.db.execute(self._SQL_CREATETABLE_ATTEMPTS)
         self.db.row_factory = sqlite3.Row
         self.db.commit()
         # Check the database configuration
@@ -588,8 +598,8 @@ class RuleBurner(object):
     def create_indexes(self):
         """Create SQL indexes on the database.
 
-        * Table `molecules`: `id` and `inchi`.
-        * Table `rules`: `id` and `diameter, usage`.
+        * Table `molecules`: `id`, `inchi` and `inchikey`.
+        * Table `rules`: `id` and `(diameter, usage)`.
         * Table `results`: `(rid, sid)`.
 
         Important: Keep in mind that to benefit from a multi-index, the WHERE clause in an SQL queries must use
@@ -597,10 +607,9 @@ class RuleBurner(object):
 
         Warning: this will slow down inserts but should fasten computations.
         """
-        self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules ON molecules(id);")
+        # NB: index are auto-created for primary keys
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules_inchi ON molecules(inchi);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_molecules_inchikey ON molecules(inchikey);")
-        self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules ON rules(id);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_rules_diausa ON rules(diameter, usage);")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_results ON results(rid, sid);")
         self.db.commit()
@@ -617,6 +626,7 @@ class RuleBurner(object):
 
     def drop_results(self):
         """Drop the results table and computed metabolites."""
+        self.db.execute("DELETE FROM batch_attempts;")
         self.db.execute("DELETE FROM results;")
         self.db.execute("DELETE FROM molecules WHERE is_computed=1;")
         self.db.commit()
@@ -653,12 +663,15 @@ class RuleBurner(object):
 
         :param diameter: Rule diameter(s) to select.
         :type diameter: int or list of int
-        :param usage: A list of rule usage to select: 'FORWARD', 'RETRO', or 'BOTH'.
+        :param usage: A list of rule usage to select among: 'FORWARD', 'RETRO', or 'BOTH'.
         :type diameter: list of str
         """
         # Checks and casts
-        if any(x not in self._CODE_RULEUSAGE for x in usage):
-            raise ValueError("Elements of 'usage' should be: 'FORWARD', 'RETRO', or 'BOTH'.")
+        try:
+            if any(x not in self._CODE_RULEUSAGE for x in usage):
+                raise ValueError("Elements of 'usage' should be: 'FORWARD', 'RETRO', or 'BOTH'.")
+        except TypeError as err:
+            raise ValueError("'usage' should be a list.") from err
         if isinstance(diameter, int):
             diameter = [diameter]
         # Query
@@ -670,6 +683,70 @@ class RuleBurner(object):
         """
         rule_list = [x[0] for x in self.db.execute(query, [*diameter, *usage_codes]).fetchall()]
         return rule_list
+
+    def compute_batch_rules(self, mols, diameter, usage, commit=False, **kwargs):
+        """Computes all rules at `diameter` and `usage` against each chemical identifier referenced in `mols`.
+
+        In addition of collecting the right set of rules given `diameter` and `usage`, this method may commit to the
+        database current query attempt. This has the advantage to allow for faster results retrieval if the same query
+        was to be attempted again. Indeed, `compute()` may store postive results but negative results are not stored
+        for performance reasons. Knowing which queries were already attempted avoid recomputing (negative) results.
+
+        :param mols: List of chemical identifiers.
+        :param diameter: Rule diameter(s) to select.
+        :param usage: A list of rule usage to select among: 'FORWARD', 'RETRO', or 'BOTH'.
+        :param commit: If true, the results will be commited to the database for later (faster) retrieval. Default: False.
+        :param kwargs: Other parameters passed to the compute() call.
+        :return: a generator over products predicted by applying all rules on molecules
+        """
+        already_attempted = {}  # already_attempted[(diameter,usage)] = [mol1, mol2, ...]
+        # Checks and quick casts
+        try:
+            usage_codes = [self._CODE_RULEUSAGE[x] for x in usage]
+        except KeyError as err:
+            raise ValueError("Elements of 'usage' should be: 'FORWARD', 'RETRO', or 'BOTH'.") from err
+        if isinstance(diameter, int):
+            diameter = [diameter]
+        # Check for previous attempts (not all of them have results)
+        ph_mols = ','.join(['?'] * len(mols))
+        ph_diameter = ','.join(['?'] * len(diameter))
+        ph_usage = ','.join(['?'] * len(usage))
+        query = f"""
+        select sid, diameter, usage from batch_attempts
+        where sid in ({ph_mols}) and diameter in ({ph_diameter}) and usage in ({ph_usage})
+        """
+        for row in self.db.execute(query, mols + diameter + usage_codes):
+            key = (row['diameter'], row['usage'])  # usage code
+            if key not in already_attempted:
+                already_attempted[key] = []
+            already_attempted[key].append(row['sid'])
+        # Collect all tasks having pregenerated results
+        # TODO: directly yield the results here?
+        query = f"""
+        select distinct sid, rid from results
+        inner join rules on results.rid=rules.id
+        where sid in ({ph_mols}) and diameter in ({ph_diameter}) and usage in ({ph_usage})
+        """
+        rule_mol = set([(x['rid'], x['sid']) for x in self.db.execute(query, mols + diameter + usage_codes)])
+        # Add to the list of tasks everything that has not been attempted yet...
+        new_attempts = []
+        for this_diameter in diameter:
+            for this_usage in usage:
+                this_usage_code = self._CODE_RULEUSAGE[this_usage]
+                relevant_rules = self.list_rules(this_diameter, [this_usage])
+                try:
+                    skip_sid = already_attempted[(this_diameter, this_usage_code)]
+                except KeyError:
+                    skip_sid = []
+                for sid in mols:
+                    if sid not in skip_sid:
+                        new_attempts.append((sid, this_diameter, this_usage_code))
+                        rule_mol |= set([(rule, sid) for rule in relevant_rules])
+        # ... and eventually remember current attempts
+        if commit and new_attempts:
+            self.db.executemany("insert into batch_attempts values (?,?,?);", new_attempts)
+            self.db.commit()
+        return self.compute(rule_mol=list(rule_mol), commit=commit, **kwargs)
 
     def compute(self, rule_mol, commit=False, max_workers=1, timeout=60, chunk_size=1000):
         """Returns a generator over products predicted by applying rules on molecules.
@@ -707,6 +784,7 @@ class RuleBurner(object):
             self._precomputed_count += 1
             yield result
         # Remove those already-yield results from the query
+        # NB: pregenerated results from the rules dataset are considered precomputed although there was no promiscuity
         for task in already_computed_tasks:
             try:
                 rule_mol.remove(task)
